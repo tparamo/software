@@ -1,0 +1,6 @@
+Number of atoms protein 1477 and solvent 0
+
+Wed Mar 13 18:08:03 2013: Frame 0. Time 0.00. Atoms found: 27793 .
+Limits of the grid: 60.18 14.44 72.20 32.72 54.52 8.82. Limits of the c-alpha grid: 60.18 14.44 72.20 32.72 54.52 8.82 
+Number of cavities 1. Total size of the cavity: 571
+Calculating statistics... 

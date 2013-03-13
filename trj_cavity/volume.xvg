@@ -1,0 +1,13 @@
+# This file was created Wed Mar 13 18:08:03 2013
+# by the following command:
+# /home/tp334/workspace_2/trj_cavity/trj_cavity -s /media/35303c88-cdf5-467f-a098-2d889184cea7/TLR4/APO_gromos/center_skip.pdb -spacing 1.4 -mode max -dim 4 -ff_radius -n /media/35303c88-cdf5-467f-a098-2d889184cea7/TLR4/APO_gromos/all.ndx 
+#
+# trj_cavity is part of G R O M A C S:
+#
+# Green Red Orange Magenta Azure Cyan Skyblue
+#
+@    title "Volume evolution"
+@    xaxis  label "Time [ps]"
+@    yaxis  label "Volume [A^3]"
+@TYPE xy
+   0.000, 1566.824
