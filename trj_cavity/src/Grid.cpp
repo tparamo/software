@@ -111,7 +111,7 @@ Coordinates Grid::calculateCoordinateInGrid(int* position){
 	return Coordinates(x,y,z);
 }
 
-vector<vector<Coordinates> > Grid::getCavitySeedPoint(Coordinates seed, Grid statistics, int &max_cavity_index, bool rectify){
+vector<vector<Coordinates> > Grid::getCavitySeedPoint(Coordinates seed, Grid statistics, int &max_cavity_index, int min, bool rectify){
 	vector<vector<Coordinates> > cavities;
 	vector<Coordinates> cavity;
 
@@ -150,7 +150,7 @@ vector<vector<Coordinates> > Grid::getCavitySeedPoint(Coordinates seed, Grid sta
 			if(end_z>=depth) end_z = depth-1;
 
 			int max_cavity_position=0;
-			vector<vector<Coordinates> > aux = getCavities(statistics, max_cavity_index, max_cavity_position, rectify, start_x, end_x, start_y, end_y, start_z, end_z);
+			vector<vector<Coordinates> > aux = getCavities(statistics, max_cavity_index, max_cavity_position, rectify, start_x, end_x, start_y, end_y, start_z, end_z, 1);
 			if(aux.size()>0){
 				cavities.push_back(aux[max_cavity_position]);
 			}
@@ -162,47 +162,11 @@ vector<vector<Coordinates> > Grid::getCavitySeedPoint(Coordinates seed, Grid sta
 	return cavities;
 }
 
-//TODO: erase?
-/*vector<vector<Coordinates> > Grid::maxCavity(vector<vector<Coordinates> > cavities, int &max_cavity){
-	vector<vector<Coordinates> > result;
-	int index = 1;
-
-	if(cavities.size()>1){
-		unsigned int max= 0;
-		vector<Coordinates> max_cavity;
-		for(unsigned int i=0; i<cavities.size();i++){
-			if(cavities[i].size()>=max){
-				max = cavities[i].size();
-				index = i+1;
-				if(result.size()>0) result.pop_back();
-				result.push_back(cavities[i]);
-			}
-		}
-	}else{
-		result = cavities;
-	}
-
-	max_cavity = -index;
-	return result;
-}*/
-
-//TODO: erase?
-/*vector<vector<Coordinates> > Grid::getCavityNoSeedPoint(Grid statistics, bool rectify, int &max_cavity){
-
-	vector<vector<Coordinates> > cavities = getCavitiesNoSeedPoint(statistics, rectify);
-
-	cavities = maxCavity(cavities, max_cavity);
-
-	cout<<"Max cavity index "<<max_cavity<<endl;
-
-	return cavities;
-}*/
-
-vector<vector<Coordinates> > Grid::getCavitiesNoSeedPoint(Grid statistics, int &max_cavity_index, int &max_cavity_position, bool rectify){
-	return getCavities(statistics, max_cavity_index, max_cavity_position, rectify, ca_limits[0], ca_limits[1], ca_limits[2], ca_limits[3], ca_limits[4], ca_limits[5]);
+vector<vector<Coordinates> > Grid::getCavitiesNoSeedPoint(Grid statistics, int &max_cavity_index, int &max_cavity_position, int min, bool rectify){
+	return getCavities(statistics, max_cavity_index, max_cavity_position, rectify, ca_limits[0], ca_limits[1], ca_limits[2], ca_limits[3], ca_limits[4], ca_limits[5], min);
 }
 
-vector<vector<Coordinates> > Grid::getCavities(Grid statistics, int &max_cavity_index, int &max_cavity_position, bool rectify, int x_min, int x_max, int y_min, int y_max, int z_min, int z_max){
+vector<vector<Coordinates> > Grid::getCavities(Grid statistics, int &max_cavity_index, int &max_cavity_position, bool rectify, int x_min, int x_max, int y_min, int y_max, int z_min, int z_max, int min){
 	vector<Coordinates> cavity;
 	vector<vector<Coordinates> > cavities;
 
@@ -215,7 +179,7 @@ vector<vector<Coordinates> > Grid::getCavities(Grid statistics, int &max_cavity_
 				if(grid[i][j][k]==0){
 					cavity = getCavity(i,j,k, false, statistics, -(cont));
 					size = cavity.size();
-					if(size>1){
+					if(size>1 && size>=min){
 						cavities.push_back(cavity);
 						if(size>max){
 							max = size;
@@ -278,7 +242,7 @@ vector<Coordinates> Grid::getCavity(int x, int y , int z, bool rectify, Grid sta
 	grid[x][y][z]=index;
 
 	while(!candidates.empty()){
-		neighbours.clear();
+		while(!neighbours.empty()) {delete [] neighbours.back(); neighbours.pop_back();}
 		for(unsigned int i=0;i<candidates.size();i++){
 			aux.clear();
 			candidate =  candidates[i];
@@ -362,7 +326,7 @@ bool Grid::isInsideCavityNew(int x, int y, int z, int pos, int index){
 	int boxed_result = 0;
 	bool odd = false;
 
-	bool sx,sy,sz;
+	bool sx,sy,sz = false;
 
 	if (dimensionsSearch%2==1){
 		odd=true;
@@ -751,129 +715,165 @@ vector<int*> Grid::getNeighbours(int* seed, bool rectify, Grid statistics, int i
 	return neighbours;
 }
 
+void Grid::setAxisDependentInfo(int axis, int &ilimit, int &jlimit, int &klimit, int &a, int &b){
+	if(axis==0){
+		//X axis
+		ilimit = height;
+		jlimit = depth;
+		klimit = width;
+		a = 1;
+		b = 2;
+	}else{
+		if(axis==1){
+			//Y axis
+			ilimit = width;
+			jlimit = depth;
+			klimit = height;
+			a = 0;
+			b = 2;
+		}else{
+			//Z axis
+			ilimit = width;
+			jlimit = height;
+			klimit = depth;
+			a = 0;
+			b = 1;
+		}
+	}
+}
 
-float Grid::calculateBottleneckArea(int index, vector<Coordinates>& tunnel){
-	float bottleneck = 0.0;
-	int x,y,z = 0;
-	int cavity= 0;
-	vector<int*> plane;
-	vector<int*> subcavity;
 
-	for(x=0; x<width; x++){
-		for (y=0; y<height; y++){
-			cavity = 0;
-			for (z=0;z<depth; z++){
-				if(grid[x][y][z]>0){
+
+
+map<int,float> Grid::calculateBottleneckArea(int index,int axis, vector<Coordinates>& tunnel, float &bottleneck, bool calculate_sector){
+
+	int i,j,k,a,b;
+	int ilimit, jlimit, klimit;
+
+	map<int, float> sector;
+
+	vector<Coordinates> line;
+	Coordinates c;
+	int plane = 0;
+
+	setAxisDependentInfo(axis, ilimit, jlimit, klimit, a, b);
+
+	for(i=0; i<ilimit; i++){
+		for (j=0; j<jlimit; j++){
+			line.clear();
+			for (k=0;k<klimit; k++){
+				if(grid[i][j][k]>0){
 					break;
 				}else{
-					if(grid[x][y][z]==index){
+					if(grid[i][j][k]==index){
 						int *coor = new int[3];
-						coor[0]=x; coor[1]=y; coor[2]=z;
-						subcavity.push_back(coor);
-						cavity ++;
+						coor[0]=i; coor[1]=j; coor[2]=k;
+						c = calculateCoordinateInGrid(coor);
+						c.setGridCoordinate(coor);
+						line.push_back(c);
 					}
 				}
 			}
-			if((z==depth) && cavity>depth/2){
-				int *coor = new int[3];
-				coor[0]=x; coor[1]=y; coor[2]=z;
-				plane.push_back(coor);
+
+			//If the cavity line gets to the opposite plane it is a tunnel
+			if((k==klimit) && (int)line.size()>klimit/2){
+				tunnel.insert(tunnel.end(), line.begin(), line.end());
+				plane ++;
 			}
 		}
 	}
 
-	getTunnel(subcavity, plane, 0, 1, tunnel);
+	if(calculate_sector==true){
+		sector = getSectorTunnel(index,axis,a,b,tunnel,plane);
+	}
 
-	bottleneck = plane.size()*(spacing*spacing);
-	//bottleneck = rectangleXY(plane, z);
+	bottleneck = plane*(spacing*spacing);
 
-	return bottleneck;
+	return sector;
 }
 
-void Grid::getTunnel(vector<int*> subcavity, vector<int*> plane, int a, int b, vector<Coordinates> &tunnel){
+map<int, float> Grid::getSectorTunnel(int index, int axis, int a, int b, vector<Coordinates>& tunnel, int bottleneck){
 
-	vector<Coordinates> result;
 
-	for(unsigned int i=0; i<subcavity.size(); i++){
-		for(unsigned int j=0; j<plane.size(); j++){
-			if(subcavity[i][a]==plane[j][a] && subcavity[i][b]==plane[j][b]){
-				result.push_back(calculateCoordinateInGrid(subcavity[i]));
-				break;
+	vector<Coordinates> tunnel_extension;
+	map<pair<int,int>,int > looked_up;
+	map<int, float> sector;
+	vector<int*> candidates;
+	Coordinates coordinates;
+
+	int sector_acc, protrusion, erase, grid_value, round_value;
+	int *member;
+	float axis_value;
+
+	for(unsigned l=0; l<tunnel.size(); l++){
+
+		axis_value = tunnel[l].getCoordinate(axis);
+		round_value = (int)(axis_value+0.5); //I round it to int, it makes it easier to compare keys
+
+		if(sector.find(round_value)==sector.end()){
+
+			while(!candidates.empty()){ delete candidates.back(); candidates.pop_back();}
+			if(looked_up.size()>0) looked_up.clear();
+			if(tunnel_extension.size()>0) tunnel_extension.clear();
+
+			sector_acc = 0;
+			candidates.push_back(tunnel[l].getGridCoordinate());
+
+			while(candidates.size()>0){
+
+				member = candidates.back();
+				candidates.pop_back();
+
+				looked_up[make_pair(member[a],member[b])]=0;
+				protrusion =0;
+				erase = candidates.size();
+
+				//I get a list of candidates that I don't consider a protrusion (to extend the bottleneck tunnel that already exists)
+				for(int i=-1; i<=1; i++){
+					for(int j=-1; j<=1; j++){
+						if(looked_up.find(make_pair(member[a]+i, member[b]+j))==looked_up.end()){
+							if(axis==0){
+								grid_value = grid[member[0]][member[1]+i][member[2]+j];
+							}else{
+								if(axis==1){
+									grid_value = grid[member[0]+i][member[1]][member[2]+j];
+								}else{
+									grid_value = grid[member[0]+i][member[1]+j][member[2]];
+								}
+							}
+
+							if(grid_value==index){
+								int *c = new int[3];
+								c[a]=member[a]+i; c[b]=member[b]+j; c[axis]=member[axis];
+								candidates.push_back(c);
+								looked_up[make_pair(c[a],c[b])]=0;
+								protrusion++;
+							}
+						}else{
+							protrusion++;
+						}
+					}
+				}
+
+				if(protrusion>8){ //square-like section only (for radius calculation)
+					sector_acc ++;
+					coordinates = calculateCoordinateInGrid(member);
+					tunnel_extension.push_back(coordinates);
+				}else{
+					candidates.erase(candidates.begin()+erase,candidates.end());
+				}
 			}
+
+			if(sector_acc<bottleneck) sector_acc =bottleneck;
+			sector[round_value] = sector_acc*(spacing*spacing);
+
+			//cout<<tunnel[l].getGridCoordinate()[2]<<" "<<round_value<<" "<<sector[round_value]<<endl;
+			tunnel.insert(tunnel.end(), tunnel_extension.begin(), tunnel_extension.end());
 		}
 	}
 
-	tunnel = result;
+	return sector;
 }
-
-/*float Grid::rectangleXY(vector<int*> plane, int cavity){
-
-	int x, y, z;
-	float vdw;
-	float container;
-	float plane_area;
-	float voxel_area;
-	float min_plane_area = 0.0;
-
-	float x_lenght, y_lenght;
-
-	for(int l=0; l<cavity; l++){
-		plane_area = 0.0;
-
-		for(unsigned int p=0; p<plane.size(); p++){
-			x = plane[p][0];
-			y = plane[p][1];
-			z = l;
-
-			x_lenght = spacing;
-			y_lenght = spacing;
-
-
-			if(grid[x][y][z]<0){
-				if(x-1>0 && grid[x-1][y][z]>0){
-					vdw = atoms[grid[x-1][y][z]-1].getVdwRadius();
-					container = (calculateCoordinateInGrid(plane[p]).getX()) - (atoms[grid[x-1][y][z]-1].getCoordinates().getX()+vdw);
-					x_lenght = x_lenght + container;
-					//cout<<"Atencion x min"<<calculateCoordinateInGrid(plane[p]).getX()<<" "<<atoms[grid[x-1][y][z]-1].getCoordinates().getX()<<" "<<vdw<<" "<<container<<" ";
-				}
-				if(x+1<width && grid[x+1][y][z]>0){
-					vdw = atoms[grid[x+1][y][z]-1].getVdwRadius();
-					container = ((atoms[grid[x+1][y][z]-1].getCoordinates().getX()-vdw)-spacing) - (calculateCoordinateInGrid(plane[p]).getX());
-					x_lenght = x_lenght + container;
-					//cout<<"Atencion x max"<<calculateCoordinateInGrid(plane[p]).getX()<<" "<<atoms[grid[x+1][y][z]-1].getCoordinates().getX()<<" "<<vdw<<" "<<container<<" ";
-				}
-				if(y-1>0 && grid[x][y-1][z]>0){
-					vdw = atoms[grid[x][y-1][z]-1].getVdwRadius();
-					container = (calculateCoordinateInGrid(plane[p]).getY()) - (atoms[grid[x][y-1][z]-1].getCoordinates().getY()+vdw);
-					y_lenght = y_lenght + container;
-					//cout<<"Atencion y min"<<calculateCoordinateInGrid(plane[p]).getY()<<" "<<atoms[grid[x][y-1][z]-1].getCoordinates().getY()<<" "<<vdw<<" "<<container<<" ";
-				}
-				if(y+1<height && grid[x][y+1][z]>0){
-					vdw = atoms[grid[x][y+1][z]-1].getVdwRadius();
-					container = ((atoms[grid[x][y+1][z]-1].getCoordinates().getY()-vdw)-spacing) - (calculateCoordinateInGrid(plane[p]).getY());
-					y_lenght = y_lenght + container;
-					//cout<<"Atencion y max"<<calculateCoordinateInGrid(plane[p]).getY()<<" "<<atoms[grid[x][y+1][z]-1].getCoordinates().getY()<<" "<<vdw<<" "<<container<<" ";
-				}
-			}
-			voxel_area = x_lenght*y_lenght;
-			plane_area = plane_area + voxel_area;
-			//cout<<x<<" "<<y<<" "<<z<<" "<<x_lenght<<" "<<y_lenght<<" "<<plane_area<<" "<<plane.size()<<endl;
-		}
-
-		if(plane_area!=(spacing*spacing)*plane.size()){
-			//cout<<plane_area<<endl;
-			if(min_plane_area==0.0){
-				min_plane_area = plane_area;
-			}else{
-				if(min_plane_area>plane_area){
-					min_plane_area = plane_area;
-				}
-			}
-		}
-	}
-
-	return min_plane_area;
-}*/
 
 /*float Grid::refineVolume(float xf, float yf, float zf){
 

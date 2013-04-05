@@ -43,6 +43,38 @@ AtomReader::AtomReader() {
 AtomReader::~AtomReader() {
 }
 
+struct t_file_pointers
+{
+	//string fpath; /* where the files might be saved*/
+	FILE *fvolume; /* volume file*/
+	FILE *fcavity; /* cavity file*/
+	FILE *ftunnel; /* tunnel file */
+	FILE *fsolcount; /* water count file*/
+	FILE *fbottleneck; /* tunnel bottleneck area*/
+	FILE *log; /* log file */
+	t_trxstatus *ftrajectory; /* cavity trajectory file*/
+	t_trxstatus *ftunnel_trajectory; /* tunnel trajectory file*/
+};
+
+struct t_cavity_params
+{
+	atom_id *index;   /* the index for the atom numbers */
+	int isize;    /* the size of each group */
+	float *radii; /* ff radii */
+	atom_id *sol_index;   /* the index for the solvent  */
+	int sol_isize;    /* the size of each group */
+	float *sol_radii; /* ff radii for solvent */
+	Grid statistics; /* statistics*/
+	Grid water_statistics; /* water statistics */
+	int min_size; /* cavity min size for trajectory*/
+	int tunnel_size; /* tunnel min size*/
+	int frame_stat;
+	int frame;
+	vector<vector<Coordinates> > v; /* Set of reference cavities*/
+	map<float, vector<int> > volume_cavities; /* Set of cavities for each frame */
+	map<int,pair<vector<float>,float> > acc_sector; /* tunnel section statistics */
+};
+
 
 struct t_cavity_options
 {
@@ -54,36 +86,16 @@ struct t_cavity_options
 	int t_stat; /* Time to strat calculating statistics */
 	bool rectify; /* Rectify output?*/
 	bool ff_radius; /* use force field radius*/
-	bool water; /* water monitoring */
+	bool sol; /* water monitoring */
 	bool ca; /* Restrict to ca*/
 	bool tunnel; /* water monitoring */
 	rvec seed; /* seed point */
 	int axis; /* Tunnel orientation */
+	bool use_seed;
 
-    //string fpath; /* where the files might be saved*/
-	FILE *fvolume; /* volume file*/
-	FILE *fcavity; /* cavity file*/
-	FILE *ftunnel; /* tunnel file */
-	FILE *fwatercount; /* water count file*/
-	FILE *fbottleneck; /* water count file*/
-	FILE *log; /* log file */
-	t_trxstatus *ftrajectory; /* cavity trajectory file*/
-	t_trxstatus *ftunnel_trajectory; /* tunnel trajectory file*/
+	t_file_pointers files; /* file pointers */
 
-	atom_id *index;   /* the index for the atom numbers */
-	int isize;    /* the size of each group */
-	float *radii; /* ff radii */
-	atom_id *sol_index;   /* the index for the solvent  */
-	int sol_isize;    /* the size of each group */
-	float *sol_radii; /* ff radii for solvent */
-    Grid statistics; /* statistics*/
-    Grid water_statistics; /* water statistics */
-    int min_size; /* cavity min size*/
-    int tunnel_size; /* tunnel min size*/
-    int frame_stat;
-    int frame;
-    bool use_seed;
-    vector<vector<Coordinates> > v; /* First set of cavities*/
+    t_cavity_params params; /* params needed for cavity calculation */
 };
 
 struct gmx_ana_traj_t
@@ -245,49 +257,53 @@ void writeTrajectory(t_trxstatus *trjfile, vector<vector<Coordinates> > v, t_trx
 	write_trxframe(trjfile, &frout, NULL);
 }
 
-int getWaterCount(vector<Atom> waters, vector<vector<Coordinates> > v, Grid& water_statistics, int frame);
+int getSolventCount(vector<Atom> waters, vector<vector<Coordinates> > v, Grid& water_statistics, int frame);
 
-int getWaterCount(vector<Atom> waters, vector<vector<Coordinates> > v, Grid& water_statistics, int time){
+int getSolventCount(vector<Atom> waters, vector<vector<Coordinates> > v, Grid& water_statistics, int time){
 	//this part is for water monitoring ->make it fancier!!
-	int water_count = 0;
-	bool water_flag = false;
-	int water_molecule = 0;
+	int solvent_count = 0;
+	Atom sol;
+	vector<Coordinates> c;
+	Coordinates coor_sol;
+
+	set<pair<string, int> > residues;
+
+	float spacing = water_statistics.getSpacing()/2.0;
 
 	for(unsigned int k=0; k<waters.size(); k++){
-		if(water_molecule != waters[k].getResId()){
-			for(unsigned int i=0; i<v.size(); i++){
-				vector<Coordinates> c = v[i];
-				for(unsigned int j=0; j<c.size(); j++){
-					if((waters[k].getCoordinates().getX()<=c[j].getX()+water_statistics.getSpacing()/2) and (waters[k].getCoordinates().getX()>c[j].getX()-water_statistics.getSpacing()/2)) {
-						if((waters[k].getCoordinates().getY()<=c[j].getY()+water_statistics.getSpacing()/2) and (waters[k].getCoordinates().getY()>c[j].getY()-water_statistics.getSpacing()/2)) {
-							if((waters[k].getCoordinates().getZ()<=c[j].getZ()+water_statistics.getSpacing()/2) and (waters[k].getCoordinates().getZ()>c[j].getZ()-water_statistics.getSpacing()/2)) {
-								water_count ++;
+		sol = waters[k];
+		coor_sol = sol.getCoordinates();
 
-								if(water_statistics.getTStartStatisitics()<=time){
-									int x = water_statistics.calculatePositionInGrid(c[j].getX(),water_statistics.getOriginX());
-									int y = water_statistics.calculatePositionInGrid(c[j].getY(),water_statistics.getOriginY());
-									int z = water_statistics.calculatePositionInGrid(c[j].getZ(),water_statistics.getOriginZ());
+		for(unsigned int i=0; i<v.size(); i++){
+			c = v[i];
+			for(unsigned int j=0; j<c.size(); j++){
 
-									if(water_statistics.getWidth()!=0 && (x<water_statistics.getWidth()) && (y>0) && (y<water_statistics.getHeight()) && (z>0) && (z<water_statistics.getDepth())){
-										water_statistics.getGrid()[x][y][z] = water_statistics.getGrid()[x][y][z]+1;
-									}
+				if((coor_sol.getX()<=c[j].getX()+spacing) && (coor_sol.getX()>c[j].getX()-spacing)) {
+					if((coor_sol.getY()<=c[j].getY()+spacing) && (coor_sol.getY()>c[j].getY()-spacing)) {
+						if((coor_sol.getZ()<=c[j].getZ()+spacing) && (coor_sol.getZ()>c[j].getZ()-spacing)) {
+
+							if(residues.find(make_pair(sol.getName(), sol.getResId()))==residues.end()){
+								solvent_count ++;
+								residues.insert(make_pair(sol.getName(), sol.getResId()));
+							}
+
+							if(water_statistics.getTStartStatisitics()<=time){
+								int x = water_statistics.calculatePositionInGrid(c[j].getX(),water_statistics.getOriginX());
+								int y = water_statistics.calculatePositionInGrid(c[j].getY(),water_statistics.getOriginY());
+								int z = water_statistics.calculatePositionInGrid(c[j].getZ(),water_statistics.getOriginZ());
+
+								if(water_statistics.getWidth()!=0 && (x<water_statistics.getWidth()) && (y>0) && (y<water_statistics.getHeight()) && (z>0) && (z<water_statistics.getDepth())){
+									water_statistics.getGrid()[x][y][z] = water_statistics.getGrid()[x][y][z]+1;
 								}
-								water_flag = true;
-								water_molecule = waters[k].getResId();
-								break;
 							}
 						}
-					}
-					if(water_flag==true){
-						water_flag = false;
-						break;
 					}
 				}
 			}
 		}
 	}
 
-	return water_count;
+	return solvent_count;
 }
 
 int updateStatistics(vector<vector<Coordinates> > v, Grid& statistics);
@@ -308,17 +324,49 @@ int updateStatistics(vector<vector<Coordinates> > v, Grid& statistics){
 	return 0;
 }
 
+void updateTunnelSection(map<float,float> section, map<float,pair<vector<float>, float> >& acc);
+
+void updateTunnelSection(map<int,float> section, map<int,pair<vector<float>, float> >& acc){
+
+	//TODO: standard deviation
+
+	map<int,float>::iterator it;
+
+	if(acc.size()==0){
+		for(it=section.begin(); it!=section.end(); ++it){
+			vector<float> sec (1, section[it->first]);
+			acc[it->first] = make_pair(sec, section[it->first]);
+		}
+	}else{
+		for(it=section.begin(); it!=section.end(); ++it){
+			if(acc.find(it->first)!=acc.end()){
+				acc[it->first].first.push_back(section[it->first]);
+				acc[it->first].second = acc[it->first].second + section[it->first];
+				//acc[it->first] = make_pair(acc[it->first].first + section[it->first], acc[it->first].second + 1);
+			}else{
+				vector<float> sec (1, section[it->first]);
+				acc[it->first] = make_pair(sec, section[it->first]);
+				//acc[it->first] = make_pair(section[it->first], 1);
+			}
+		}
+	}
+}
+
+/* This function forces the trajectory to have the same number of atoms than the topology cavity (frame=0) by adding dummy atoms or removing central
+ * atoms, depending on the difference. Note that the volume was calculated before, so it will only affect the representation. */
+
 int cavityToTrajectory(t_cavity_options *opt, t_trxframe *fr, vector<vector<Coordinates> >& v, int size, bool tunnel);
 
 int cavityToTrajectory(t_cavity_options *opt, t_trxframe *fr, vector<vector<Coordinates> >& v, int size, bool tunnel){
+
 	int i;
 	AtomWriter writer;
 
-	if(opt->frame == 0) {
+	if(opt->params.frame == 0) {
 		if(!tunnel){
-			opt->min_size = size + 1000;
+			opt->params.min_size = size + 1000;
 		}else{
-			opt->tunnel_size = size + 1000;
+			opt->params.tunnel_size = size + 1000;
 		}
 		for(i=0; i<1000; i++){
 			//Dummy coordinates! To ensure we have an initial cavity in case it just appears along the simulation
@@ -327,18 +375,18 @@ int cavityToTrajectory(t_cavity_options *opt, t_trxframe *fr, vector<vector<Coor
 		}
 
 		if(!tunnel){
-			writer.writePDB(v, opt->fcavity);
-			fclose(opt->fcavity);
+			writer.writePDB(v, opt->files.fcavity);
+			fclose(opt->files.fcavity);
 		}else{
-			writer.writePDB(v, opt->ftunnel);
-			fclose(opt->ftunnel);
+			writer.writePDB(v, opt->files.ftunnel);
+			fclose(opt->files.ftunnel);
 		}
 	}else{
 		int dif = 0;
 		if(!tunnel){
-			dif = opt->min_size - size;
+			dif = opt->params.min_size - size;
 		}else{
-			dif = opt->tunnel_size - size;
+			dif = opt->params.tunnel_size - size;
 		}
 
 		if(dif!=0){
@@ -350,7 +398,7 @@ int cavityToTrajectory(t_cavity_options *opt, t_trxframe *fr, vector<vector<Coor
 				}
 			}else{
 				//Erase the ones in the center of the cavity
-				int dif = size - opt->min_size;
+				int dif = size - opt->params.min_size;
 
 				if(v.size()==1){
 					v[0].erase(v[0].begin(),v[0].begin()+dif);
@@ -366,44 +414,13 @@ int cavityToTrajectory(t_cavity_options *opt, t_trxframe *fr, vector<vector<Coor
 					}
 				}
 				if(!tunnel){
-					fprintf(opt->log, "I have erased %d cavity points so cavity matches cavity topology. Careful!\n", dif);
+					fprintf(opt->files.log, "I have erased %d cavity points so cavity matches cavity topology. Careful!\n", dif);
 				}else{
-					fprintf(opt->log, "I have erased %d tunnel points so tunnel matches tunnel topology. Careful!\n", dif);
+					fprintf(opt->files.log, "I have erased %d tunnel points so tunnel matches tunnel topology. Careful!\n", dif);
 				}
-				fflush(opt->log);
+				fflush(opt->files.log);
 			}
 		}
-
-		/*if(size!=opt->min_size){
-			if(size<opt->min_size){
-				int dif = opt->min_size - size;
-
-				for(int i=0; i<dif; i++){
-					//Dummy coordinates!
-					Coordinates dummy = v[0][0];
-					v[0].push_back(dummy);
-				}
-			}else{
-				//Erase the ones in the center of the cavity
-				int dif = size - opt->min_size;
-
-				if(v.size()==1){
-					v[0].erase(v[0].begin(),v[0].begin()+dif);
-				}else{
-					while(dif>0){
-						for(int i=0; i<v.size();i++){
-							if(v[i].size()>2){
-								v[i].erase(v[i].begin(),v[i].begin()+1);
-								dif--;
-								if(dif==0) break;
-							}
-						}
-					}
-				}
-				fprintf(opt->log, "I have erased %d cavity points so cavity matches topology. Careful!\n", dif);
-				fflush(opt->log);
-			}
-		}*/
 	}
 
 	return 0;
@@ -420,17 +437,20 @@ int getVolume(Grid grid, t_cavity_options *opt, t_trxframe *fr, vector<Atom> wat
 
 	if(opt->use_seed==true){
 		Coordinates seed(opt->seed[0], opt->seed[1], opt->seed[2]);
-		v = grid.getCavitySeedPoint(seed, opt->statistics, index, opt->rectify);
-		/*if(fr->time>0.0 && v.size()==0){
-			for(unsigned i = 0; i<opt->v[0].size();i++){
-				v = grid.getCavitySeedPoint(opt->v[0][i], opt->statistics, opt->rectify);
-				if(v.size()>0) break;
+		v = grid.getCavitySeedPoint(seed, opt->params.statistics, index, (int)opt->min, opt->rectify);
+		if(fr->time>0.0 && v.size()==0){
+			for(unsigned i = 0; i<opt->params.v[0].size();i++){
+				v = grid.getCavitySeedPoint(opt->params.v[0][i], opt->params.statistics, index, (int)opt->min, opt->rectify);
+				if(v.size()>0){
+					writer.preprocessVolumeCavities(v.size(), v, opt->params.v, opt->spacing);
+					break;
+				}
 			}
-		}*/
-		if(v.size()==0) fprintf(opt->log, "No cavity found for coordinates %8.3f %8.3f %8.3f\n", opt->seed[0],opt->seed[1],opt->seed[2]);
+		}
+		if(v.size()==0) fprintf(opt->files.log, "No cavity found for coordinates %8.3f %8.3f %8.3f\n", opt->seed[0],opt->seed[1],opt->seed[2]);
 	}else{
 		int max_cavity = 0;
-		vector<vector<Coordinates> > aux = grid.getCavitiesNoSeedPoint(opt->statistics, index, max_cavity, opt->rectify);
+		vector<vector<Coordinates> > aux = grid.getCavitiesNoSeedPoint(opt->params.statistics, index, max_cavity, (int)opt->min, opt->rectify);
 		if(opt->mode==0){
 			if(aux.size()>0){
 				v.push_back(aux[max_cavity]);
@@ -440,30 +460,29 @@ int getVolume(Grid grid, t_cavity_options *opt, t_trxframe *fr, vector<Atom> wat
 		}
 	}
 
-	if(opt->frame==0) opt->v = v;
-
 	int size = 0;
 	for(unsigned int i=0; i<v.size();i++){
 		size = size + v[i].size();
 	}
 
-	fprintf(opt->log, "Number of cavities %d. Total size of the cavity: %d\n", (int)v.size(), size);
+	fprintf(opt->files.log, "Number of cavities %d. Total size of the cavity: %d\n", (int)v.size(), size);
 
 	if(opt->mode == 0){
-		writer.writeVolumeFrame(size,opt->spacing, fr->time, opt->fvolume);
+		writer.writeVolumeFrame(size,opt->spacing, opt->params.frame, opt->files.fvolume);
 	}else{
-		writer.writeVolumeFrame(v, opt->v, opt->spacing, fr->time, opt->fvolume);
+		vector<int> volume_cavities = writer.preprocessVolumeCavities(size, v, opt->params.v, opt->spacing);
+		opt->params.volume_cavities.insert(make_pair(fr->time, volume_cavities));
 	}
 
-	if(opt->water == true){
-		int water_count = getWaterCount(waters, v, opt->water_statistics, (int)fr->time);
-		writer.writeWatersFrame(water_count,opt->spacing,(int)fr->time, opt->fwatercount);
+	if(opt->sol){
+		int water_count = getSolventCount(waters, v, opt->params.water_statistics, (int)fr->time);
+		if(opt->files.fsolcount!=NULL) writer.writeSolventFrame(water_count,opt->spacing,(int)fr->time, opt->files.fsolcount);
 	}
 
-	if((int)fr->time >= opt->statistics.getTStartStatisitics()){
-		fprintf(opt->log, "Calculating statistics... \n");
-		updateStatistics(v, opt->statistics);
-		opt->frame_stat = opt->frame_stat + 1;
+	if((int)fr->time >= opt->params.statistics.getTStartStatisitics()){
+		fprintf(opt->files.log, "Calculating statistics... \n");
+		updateStatistics(v, opt->params.statistics);
+		opt->params.frame_stat = opt->params.frame_stat + 1;
 	}
 
 	if(size>0){
@@ -473,26 +492,34 @@ int getVolume(Grid grid, t_cavity_options *opt, t_trxframe *fr, vector<Atom> wat
 		aux[0] = 0; aux[1] = 0; aux[2] = 0;
 		Coordinates dummy = grid.calculateCoordinateInGrid(aux);
 		vector<Coordinates> a;
-		for(int i=0; i<opt->min_size;i ++){
+		for(int i=0; i<opt->params.min_size;i ++){
 			a.push_back(dummy);
 		}
 		v.push_back(a);
-		fprintf(opt->log, "No cavity!\n");
+		fprintf(opt->files.log, "No cavity!\n");
 	}
 
-	fflush(opt->fvolume);
+	fflush(opt->files.fvolume);
 
-	if(opt->ftrajectory){
-		writeTrajectory(opt->ftrajectory, v, fr, opt->min_size);
+	if(opt->files.ftrajectory){
+		writeTrajectory(opt->files.ftrajectory, v, fr, opt->params.min_size);
 	}
 
 	// Tunnel
 
 	if(opt->tunnel){
 		vector<Coordinates> tunnel;
-		float bottleneck = grid.calculateBottleneckArea(index, tunnel);
-		writer.writeSectionAreaFrame(bottleneck, (int)fr->time, opt->fbottleneck);
-		fprintf(opt->log, "Tunnel found. Section area %8.3f\n", bottleneck);
+		float bottleneck = 0.0;
+
+		if((int)fr->time>opt->t_stat){
+			map<int, float> sector = grid.calculateBottleneckArea(index, opt->axis, tunnel, bottleneck, true);
+			updateTunnelSection(sector, opt->params.acc_sector);
+		}else{
+			grid.calculateBottleneckArea(index, opt->axis, tunnel, bottleneck, false);
+		}
+
+		writer.writeBottleneckAreaFrame(bottleneck, (int)fr->time, opt->files.fbottleneck);
+		fprintf(opt->files.log, "Tunnel found. Bottleneck section area %8.3f\n", bottleneck);
 
 		vector<vector<Coordinates> > tunnels;
 		if(tunnel.size()>0){
@@ -503,21 +530,23 @@ int getVolume(Grid grid, t_cavity_options *opt, t_trxframe *fr, vector<Atom> wat
 			aux[0] = 0; aux[1] = 0; aux[2] = 0;
 			Coordinates dummy = grid.calculateCoordinateInGrid(aux);
 			vector<Coordinates> a;
-			for(int i=0; i<opt->tunnel_size;i ++){
+			for(int i=0; i<opt->params.tunnel_size;i ++){
 				tunnel.push_back(dummy);
 			}
 			tunnels.push_back(a);
-			fprintf(opt->log, "No tunnel!\n");
+			fprintf(opt->files.log, "No tunnel!\n");
 		}
-		if(opt->ftunnel_trajectory){
-			writeTrajectory(opt->ftunnel_trajectory, tunnels, fr, opt->tunnel_size);
+		if(opt->files.ftunnel_trajectory){
+			writeTrajectory(opt->files.ftunnel_trajectory, tunnels, fr, opt->params.tunnel_size);
 		}
 	}
 
-	fflush(opt->log);
+	fflush(opt->files.log);
 
 	return size;
 }
+
+/* This function maps the atoms in the grid and calls for the calculation of the cavity */
 
 int analyze_frame(t_topology * top, t_trxframe * fr, t_pbc * pbc, int nr, gmx_ana_selection_t *sel[], void *data);
 
@@ -533,29 +562,26 @@ int analyze_frame(t_topology * top, t_trxframe * fr, t_pbc * pbc, int nr, gmx_an
 	vector<Atom> selection;
 	vector<Atom> waters;
 
-	if((opt->frame)%opt->skip == 0){
+	if((opt->params.frame)%opt->skip == 0){
 
 		string atom_n, file;
 
-		a = opt->index[0];
+		a = opt->params.index[0];
 		limits[0] = fr->x[a][XX]*FACTOR; limits[1] = fr->x[a][YY]*FACTOR; limits[2] = fr->x[a][ZZ]*FACTOR; limits[3] = fr->x[a][XX]*FACTOR; limits[4] = fr->x[a][YY]*FACTOR; limits[5] = fr->x[a][ZZ]*FACTOR;
 		if(opt->ca==true){
 			ca_limits[0] = fr->x[a][XX]*FACTOR; ca_limits[1] = fr->x[a][YY]*FACTOR; ca_limits[2] = fr->x[a][ZZ]*FACTOR; ca_limits[3] = fr->x[a][XX]*FACTOR; ca_limits[4] = fr->x[a][YY]*FACTOR; ca_limits[5] = fr->x[a][ZZ]*FACTOR;
 		}
 
-		fprintf(opt->log, "Number of atoms protein %d and solvent %d\n", opt->isize, opt->sol_isize);
-		fflush(opt->log);
-
-		for(i=0;(i<opt->isize);i++) {
+		for(i=0;(i<opt->params.isize);i++) {
 			Atom atom;
-			a = opt->index[i];
+			a = opt->params.index[i];
 			atom_n = (string)*(top->atoms.atomname[a]);
 
 			if(!opt->ff_radius /*|| (opt->ff_radius && opt->radii[i]==0)*/){
 				Atom aux(top->atoms.atomname[a][0][0],Coordinates(fr->x[a][XX]*FACTOR,fr->x[a][YY]*FACTOR,fr->x[a][ZZ]*FACTOR));
 				atom = aux;
 			}else{
-				Atom aux(top->atoms.atomname[a][0][0],Coordinates(fr->x[a][XX]*FACTOR,fr->x[a][YY]*FACTOR,fr->x[a][ZZ]*FACTOR), opt->radii[i]);
+				Atom aux(top->atoms.atomname[a][0][0],Coordinates(fr->x[a][XX]*FACTOR,fr->x[a][YY]*FACTOR,fr->x[a][ZZ]*FACTOR), opt->params.radii[i]);
 				atom = aux;
 			}
 
@@ -573,16 +599,17 @@ int analyze_frame(t_topology * top, t_trxframe * fr, t_pbc * pbc, int nr, gmx_an
 		}
 
 		/* If required, calculate the water grid */
-		if(opt->water==true){
-			for(i=0;(i<opt->sol_isize);i++) {
-				a = opt->sol_index[i];
+		if(opt->sol==true){
+			for(i=0;(i<opt->params.sol_isize);i++) {
+				a = opt->params.sol_index[i];
 				if((fr->x[a][XX]*FACTOR<=limits[0]) and (fr->x[a][XX]*FACTOR >= limits[3] and (fr->x[a][YY]*FACTOR <= limits[1]) and (fr->x[a][YY]*FACTOR >= limits[4]) and (fr->x[a][ZZ]*FACTOR <= limits[2]) and (fr->x[a][ZZ]*FACTOR >= limits[5])) ){
 					Atom atom;
 					if(!opt->ff_radius /*|| (opt->ff_radius && opt->sol_radii[i]==0)*/){
-						Atom aux(top->atoms.atomname[a][0][0],Coordinates(fr->x[a][XX]*FACTOR,fr->x[a][YY]*FACTOR,fr->x[a][ZZ]*FACTOR),top->atoms.atom[a].resind);
+						Atom aux(top->atoms.atomname[a][0][0],Coordinates(fr->x[a][XX]*FACTOR,fr->x[a][YY]*FACTOR,fr->x[a][ZZ]*FACTOR));
+						aux.setResId(top->atoms.atom[a].resind);
 						atom = aux;
 					}else{
-						Atom aux(top->atoms.atomname[a][0][0],Coordinates(fr->x[a][XX]*FACTOR,fr->x[a][YY]*FACTOR,fr->x[a][ZZ]*FACTOR), opt->sol_radii[i]);
+						Atom aux(top->atoms.atomname[a][0][0],Coordinates(fr->x[a][XX]*FACTOR,fr->x[a][YY]*FACTOR,fr->x[a][ZZ]*FACTOR), opt->params.sol_radii[i]);
 						atom = aux;
 					}
 					waters.push_back(atom);
@@ -590,27 +617,18 @@ int analyze_frame(t_topology * top, t_trxframe * fr, t_pbc * pbc, int nr, gmx_an
 			}
 		}
 
-		time_t rawtime;
-		struct tm * timeinfo;
-
-		time (&rawtime);
-		timeinfo = localtime(&rawtime);
-		string ts = (string)asctime(timeinfo);
-		int ch = ts.find_last_of("\n");
-		ts.erase(ch, ch+1);
-
 		Grid grid(opt->spacing, limits[0], limits[3], limits[1], limits[4], limits[2], limits[5]);
 		grid.setDimensionsSearch(opt->dim);
 		grid.setAtoms(selection);
 
-		if(opt->frame == 0){
+		if(opt->params.frame == 0){
 			Grid stat(opt->spacing, limits[0], limits[3], limits[1], limits[4], limits[2], limits[5]);
 			stat.setTStartStatisitics(opt->t_stat);
-			opt->statistics = stat;
-			if(opt->water==true){
+			opt->params.statistics = stat;
+			if(opt->sol==true){
 				Grid wat(opt->spacing, limits[0], limits[3], limits[1], limits[4], limits[2], limits[5]);
 				wat.setTStartStatisitics(opt->t_stat);
-				opt->water_statistics = wat;
+				opt->params.water_statistics = wat;
 			}
 		}
 
@@ -622,10 +640,24 @@ int analyze_frame(t_topology * top, t_trxframe * fr, t_pbc * pbc, int nr, gmx_an
 
 		grid.setCAplhaLimits(ca_limits[0], ca_limits[3], ca_limits[1], ca_limits[4], ca_limits[2], ca_limits[5]);
 
-		fprintf(opt->log, "\n%s: Frame %d. Time %.2f. Atoms found: %d .\n", ts.c_str(), opt->frame, fr->time, fr->natoms);
-		fprintf(opt->log, "Limits of the grid: %.2f %.2f %.2f %.2f %.2f %.2f", limits[0], limits[3], limits[1], limits[4], limits[2], limits[5]);
-		fprintf(opt->log, ". Limits of the c-alpha grid: %.2f %.2f %.2f %.2f %.2f %.2f \n", ca_limits[0], ca_limits[3], ca_limits[1], ca_limits[4], ca_limits[2], ca_limits[5]);
-		fflush(opt->log);
+		time_t rawtime;
+		struct tm * timeinfo;
+
+		time (&rawtime);
+		timeinfo = localtime(&rawtime);
+		string ts = (string)asctime(timeinfo);
+		int ch = ts.find_last_of("\n");
+		ts.erase(ch, ch+1);
+
+		timeval tp;
+		gettimeofday(&tp, 0);
+
+		fprintf(opt->files.log, "\n%s. Frame %d. Time %.2f. Milliseconds %d .\n", ts.c_str(), opt->params.frame, fr->time, (int)tp.tv_usec/1000);
+		fprintf(opt->files.log, "Number of atoms protein %d and solvent %d\n", opt->params.isize, opt->params.sol_isize);
+		fprintf(opt->files.log, "Limits of the grid: %.2f %.2f %.2f %.2f %.2f %.2f", limits[0], limits[3], limits[1], limits[4], limits[2], limits[5]);
+		fprintf(opt->files.log, ".Grid size N = %d \n", grid.getWidth()*grid.getHeight()*grid.getDepth());
+
+		fflush(opt->files.log);
 
 		getVolume(grid, opt, fr, waters);
 
@@ -633,10 +665,12 @@ int analyze_frame(t_topology * top, t_trxframe * fr, t_pbc * pbc, int nr, gmx_an
 
 	}
 
-	opt->frame = opt->frame + 1;
+	opt->params.frame = opt->params.frame + 1;
 
 	return 0;
 }
+
+/* I calculate the radii form the parameters of the force field (contained in tpr file)*/
 
 void calculateRadius(t_topology * top, atom_id * selection, int selection_size, float * radii);
 
@@ -653,9 +687,9 @@ void calculateRadius(t_topology * top, atom_id * selection, int selection_size, 
 		if ((c6 != 0) && (c12 != 0)) {
 			sig6 = c12/c6;
 			radii[i]= (0.5*pow(sig6,1.0/6.0))*10;  /* Factor of 10 for nm -> Angstroms */
-			printf(" radius %f\n",radii[i]);
+			//printf(" radius %f\n",radii[i]);
 		}else{
-			printf("no LJ parameters\n");
+			//printf("no LJ parameters\n");
 			radii[i]=0.0;
 		}
 	}
@@ -668,6 +702,10 @@ void AtomReader::start(int argc,char *argv[]){
 	const char *tmp_fnm;
 	AtomWriter writer;
 
+	opt.files.log = ffopen("log.txt", "w");
+	for(int i=0;i<argc;i++) fprintf(opt.files.log, "%s ", argv[i]);
+	fprintf(opt.files.log, "\n");
+
 	char **grpname; /* the name of each group */
 
 	const char *desc[] = {
@@ -678,18 +716,19 @@ void AtomReader::start(int argc,char *argv[]){
 	const char *orientation[5]={NULL, "z","x","y", NULL};
 
 	t_filenm fnm[] = {
-			{ efTRX, NULL,   NULL,      ffOPTRD },
-			{ efTPS, NULL,   NULL,      ffREAD },
-			{ efNDX, NULL,   NULL,      ffOPTRD },
-			{ efPDB, "-o",   "cavity",  ffWRITE },
-			{ efPDB, "-otunnel",   "tunnel",  ffWRITE },
-			{ efXVG, "-ov",  "volume",  ffWRITE },
-			{ efXVG, "-ow",  "water",  ffOPTWR },
-			{ efXVG, "-ob",  "bottleneck_area",  ffOPTWR },
-			{ efTRO, "-ot",  "cav_traj",ffOPTWR },
-			{ efPDB, "-ostat","statistics",ffOPTWR },
-			{ efPDB, "-owstat","wstatistics",ffOPTWR },
-			{ efTRO, "-ott",  "tun_traj",ffOPTWR },
+			{ efTRX, NULL, NULL, ffOPTRD },
+			{ efTPS, NULL, NULL, ffREAD },
+			{ efNDX, NULL, NULL, ffOPTRD },
+			{ efPDB, "-o", "cavity", ffWRITE },
+			{ efXVG, "-ov", "volume", ffWRITE },
+			{ efTRO, "-ot", "cav_traj",ffOPTWR },
+			{ efPDB, "-ostat", "stat", ffOPTWR },
+			{ efXVG, "-os", "sol_count", ffOPTWR },
+			{ efPDB, "-osstat","sol_stat",ffOPTWR },
+			{ efPDB, "-ob", "tunnel", ffOPTWR },
+			{ efTRO, "-obt", "tun_traj",ffOPTWR },
+			{ efXVG, "-oba", "min_area", ffOPTWR },
+			{ efXVG, "-obs", "section_area", ffOPTWR },
 	};
 
 	t_pargs pa[] = {
@@ -701,8 +740,6 @@ void AtomReader::start(int argc,char *argv[]){
 			{ "-tstat", NULL, etINT, {&opt.t_stat},  "Time (ps) to start the calculation of statistics"},
 			{ "-rectify", NULL, etBOOL, {&opt.rectify},  "Rectify output based on statistics"},
 			{ "-ff_radius", NULL, etBOOL, {&opt.ff_radius},  "Use force field radii (only using tpr topology)"},
-			{ "-sol", NULL, etBOOL, {&opt.water},  "Perform solvent monitoring"},
-			{ "-tunnel", NULL, etBOOL, {&opt.tunnel},  "Perform tunnel monitoring"},
 			{ "-axis", FALSE , etENUM, { orientation },  "Orientation of the protein for tunnel calculation"},
 			{ "-ca", NULL, etBOOL, {&opt.ca},  "Only cavities enclosed in the backbone"},
 			{ "-seed", FALSE, etRVEC,{&opt.seed}, "Coordinates of the seed point"},
@@ -711,24 +748,32 @@ void AtomReader::start(int argc,char *argv[]){
 	opt.dim = 5;
 	opt.mode = 1;
 	opt.skip = 1;
-	opt.min  = 100;
+	opt.min  = 50;
 	opt.spacing = 1.4;
 	opt.t_stat = 0;
-	opt.rectify = false;
-	opt.ff_radius = false;
-	opt.water = false;
-	opt.min_size = 0;
-	opt.frame_stat = 0;
-	opt.frame = 0;
-	opt.ca = false;
-	opt.tunnel = false;
-	opt.tunnel_size = 0;
-	opt.use_seed = false;
 	opt.seed[0] = 0.0;
 	opt.seed[1] = 0.0;
 	opt.seed[2] = 0.0;
 	opt.axis = 2;
 
+	opt.params.min_size = 0;
+	opt.params.tunnel_size = 0;
+	opt.params.frame_stat = 0;
+	opt.params.frame = 0;
+	opt.rectify = false;
+	opt.ff_radius = false;
+	opt.sol = false;
+	opt.ca = false;
+	opt.tunnel = false;
+	opt.use_seed = false;
+
+	opt.files.fcavity = NULL;
+	opt.files.ftrajectory = NULL;
+	opt.files.fvolume = NULL;
+	opt.files.fsolcount = NULL;
+	opt.files.ftunnel = NULL;
+	opt.files.fbottleneck = NULL;
+	opt.files.ftunnel_trajectory = NULL;
 
 	#define NFILE asize(fnm)
 	#define NPA asize(pa)
@@ -767,8 +812,8 @@ void AtomReader::start(int argc,char *argv[]){
 		trj->flags |= ANA_REQUIRE_TOP;
 		trj->flags |= ANA_USE_TOPX;
 	}else{
-		opt.ftrajectory = open_trx(opt2fn("-ot", NFILE, fnm),"w");
-		if(opt.tunnel) opt.ftunnel_trajectory = open_trx(opt2fn("-ott", NFILE, fnm),"w");
+		if(opt2fn_null("-ot",NFILE,fnm)) opt.files.ftrajectory = open_trx(opt2fn("-ot", NFILE, fnm),"w");
+		if(opt2fn_null("-obt",NFILE,fnm)) opt.files.ftunnel_trajectory = open_trx(opt2fn("-obt", NFILE, fnm),"w");
 	}
 
 	/* Read topology */
@@ -782,34 +827,36 @@ void AtomReader::start(int argc,char *argv[]){
 	if(ftp2bSet(efNDX,NFILE,fnm)){
 		printf("Select group of atoms to calculate the cavities within:\n");
 		snew(grpname,1);
-		get_index(&trj->top->atoms,ftp2fn_null(efNDX,NFILE,fnm),1,&opt.isize,&opt.index,grpname);
+		get_index(&trj->top->atoms,ftp2fn_null(efNDX,NFILE,fnm),1,&opt.params.isize,&opt.params.index,grpname);
 	}else{
 		int i;
-		opt.isize = trj->top->atoms.nr;
-		snew(opt.index,opt.isize);
-		for(i=0; i<opt.isize; i++){
-			opt.index[i] = i;
+		opt.params.isize = trj->top->atoms.nr;
+		snew(opt.params.index,opt.params.isize);
+		for(i=0; i<opt.params.isize; i++){
+			opt.params.index[i] = i;
 		}
 	}
 
-	/* Identify solvent */
+	/* If solvent calculation required, identify solvent atoms*/
 
-	if(opt.water==true){
+	if (opt2fn_null("-os",NFILE,fnm) || opt2fn_null("-osstat",NFILE,fnm)){
+		opt.sol=true;
+
 		if(ftp2bSet(efNDX,NFILE,fnm)){
 			printf("Select solvent:\n");
 			snew(grpname,1);
-			get_index(&trj->top->atoms,ftp2fn_null(efNDX,NFILE,fnm),1,&opt.sol_isize,&opt.sol_index,grpname);
+			get_index(&trj->top->atoms,ftp2fn_null(efNDX,NFILE,fnm),1,&opt.params.sol_isize,&opt.params.sol_index,grpname);
 		}else{
 			int cont=0;
-			opt.sol_isize = trj->top->atoms.nr;
-			snew(opt.index,opt.sol_isize);
+			opt.params.sol_isize = trj->top->atoms.nr;
+			snew(opt.params.index,opt.params.sol_isize);
 			for(int i=0; i<trj->top->atoms.nr; i++) {
 				if(strcmp(trj->top->atoms.resinfo[trj->top->atoms.atom[i].resind].name[0], "SOL") == 0){
-					opt.sol_index[cont]=i;
+					opt.params.sol_index[cont]=i;
 					cont++;
 				}
 			}
-			opt.sol_isize = cont;
+			opt.params.sol_isize = cont;
 		}
 	}
 
@@ -817,14 +864,18 @@ void AtomReader::start(int argc,char *argv[]){
 		opt.use_seed = true;
 	}
 
+	if(opt2fn_null("-ob",NFILE,fnm) || opt2fn_null("-obt",NFILE,fnm) || opt2fn_null("-oba",NFILE,fnm) || opt2fn_null("-obs",NFILE,fnm)){
+		opt.tunnel = true;
+	}
+
 	/* Get force field radii */
 	if(opt.ff_radius==true){
 		if(ftp2bSet(efTPR,NFILE,fnm)){
-			snew(opt.radii,opt.isize);
-			calculateRadius(trj->top, opt.index, opt.isize, opt.radii);
-			if(opt.water==true){
-				snew(opt.sol_radii,opt.sol_isize);
-				calculateRadius(trj->top, opt.sol_index, opt.sol_isize, opt.sol_radii);
+			snew(opt.params.radii,opt.params.isize);
+			calculateRadius(trj->top, opt.params.index, opt.params.isize, opt.params.radii);
+			if(opt.sol==true){
+				snew(opt.params.sol_radii,opt.params.sol_isize);
+				calculateRadius(trj->top, opt.params.sol_index, opt.params.sol_isize, opt.params.sol_radii);
 			}
 		}else{
 			opt.ff_radius = false;
@@ -832,18 +883,18 @@ void AtomReader::start(int argc,char *argv[]){
 		}
 	}
 
-	/* Open output files */
+	/* Min number of grids of cavity */
+	opt.min = (int)((opt.min)/(opt.spacing*opt.spacing*opt.spacing) + 0.5);
 
-	opt.fvolume = xvgropen(opt2fn("-ov", NFILE, fnm), "Volume evolution", "Time [ps]", "Volume [A^3]", oenv);
-	opt.fcavity =ffopen(opt2fn("-o", NFILE, fnm),"w");
-	opt.log = ffopen("log.txt", "w");
-	if(opt.water == true){
-		opt.fwatercount =xvgropen(opt2fn("-ow", NFILE, fnm), "Water Molecules Count", "Time [ps]", "Water molecules", oenv);
-	}
-	if(opt.tunnel == true){
-		opt.ftunnel =ffopen(opt2fn("-otunnel", NFILE, fnm),"w");
-		opt.fbottleneck =xvgropen(opt2fn("-ob", NFILE, fnm), "Min. tunnel section area", "Time [ps]", "Area [A^2]", oenv);
-	}
+	/* Open output files: default files */
+
+	opt.files.fvolume = xvgropen(opt2fn("-ov", NFILE, fnm), "Volume evolution", "Time [ps]", "Volume [angstroms\\S3\\N]", oenv);
+	opt.files.fcavity =ffopen(opt2fn("-o", NFILE, fnm),"w");
+
+	/* Open output files: optional files */
+
+	if(opt2fn_null("-os",NFILE,fnm)) opt.files.fsolcount =xvgropen(opt2fn("-os", NFILE, fnm), "Solvent Molecules Count", "Time [ps]", "Solvent molecules", oenv);
+	if(opt2fn_null("-oba",NFILE,fnm)) opt.files.fbottleneck =xvgropen(opt2fn("-oba", NFILE, fnm), "Min. tunnel section area", "Time [ps]", "Area [angstroms\\S2\\N]", oenv);
 
 	/* Do the actual analysis*/
 
@@ -851,38 +902,60 @@ void AtomReader::start(int argc,char *argv[]){
 
 	/* summary results and close files */
 
+	if(opt.mode == 1){
+		writer.writeVolumeAllFrames(opt.params.volume_cavities, opt.spacing, opt.files.fvolume);
+	}
+
 	if (trj->trjfile){
-		fprintf(opt.log, "Statistics calculated for the last %d frames\n", opt.frame_stat);
-		fflush(opt.log);
-		FILE* fstatistics = ffopen(opt2fn("-ostat", NFILE, fnm),"w");
-		writer.writeStatistics(opt.statistics, opt.spacing, opt.frame_stat ,fstatistics);
-		close_trx(opt.ftrajectory);
-		if(opt.tunnel) close_trx(opt.ftunnel_trajectory);
-	}
-
-	if(opt.water == true){
-		if (trj->trjfile){
-			FILE* fwater_statistics = ffopen(opt2fn("-owstat", NFILE, fnm),"w");
-			writer.writeStatistics(opt.water_statistics, opt.spacing, opt.frame_stat ,fwater_statistics);
+		if(opt2fn_null("-ostat",NFILE,fnm)){
+			fprintf(opt.files.log, "Statistics calculated for the last %d frames\n", opt.params.frame_stat);
+			fflush(opt.files.log);
+			FILE* fstatistics = ffopen(opt2fn("-ostat", NFILE, fnm),"w");
+			writer.writeStatistics(opt.params.statistics, opt.spacing, opt.params.frame_stat ,fstatistics);
+			if(opt2fn_null("-ot",NFILE,fnm)) close_trx(opt.files.ftrajectory);
 		}
-		fclose(opt.fwatercount);
+		if(opt2fn_null("-obt",NFILE,fnm)) close_trx(opt.files.ftunnel_trajectory);
 	}
 
-	fclose(opt.fvolume);
-	fclose(opt.log);
+	if(opt.sol == true){
+		if (trj->trjfile && opt2fn_null("-osstat",NFILE,fnm)){
+			FILE* fwater_statistics = ffopen(opt2fn("-osstat", NFILE, fnm),"w");
+			writer.writeStatistics(opt.params.water_statistics, opt.spacing, opt.params.frame_stat ,fwater_statistics);
+		}
+		if(opt2fn_null("-os",NFILE,fnm)) fclose(opt.files.fsolcount);
+	}
+
+	fclose(opt.files.fvolume);
+	fclose(opt.files.log);
 
 	if(opt.tunnel == true){
-		fclose(opt.fbottleneck);
+		if(opt2fn_null("-obs",NFILE,fnm)){
+			const char *leyend;
+			if(opt.axis==0){
+				leyend="X [angstroms]";
+			}else{
+				if(opt.axis==1){
+					leyend="Y [angstroms]";
+				}else{
+					leyend="Z [angstroms]";
+				}
+			}
+
+			FILE* fsection =xvgropen(opt2fn("-obs", NFILE, fnm), "Tunnel section area", leyend, "Area [angstroms\\S2\\N]", oenv);
+			writer.writeSectionAreaFrame(opt.params.acc_sector, opt.params.frame_stat, fsection);
+			fclose(fsection);
+		}
+		if(opt2fn_null("-oba",NFILE,fnm)) fclose(opt.files.fbottleneck);
 	}
 
 	/* Free memory */
 
 	gmx_ana_traj_free(trj);
 
-	free(opt.index);
-	free(opt.sol_index);
-	opt.statistics.deleteGrid();
-	opt.water_statistics.deleteGrid();
+	free(opt.params.index);
+	free(opt.params.sol_index);
+	opt.params.statistics.deleteGrid();
+	opt.params.water_statistics.deleteGrid();
 
 	printf("end");
 }

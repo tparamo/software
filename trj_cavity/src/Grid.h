@@ -39,11 +39,10 @@ class Grid {
 		float calculateDistance(float a, float b);
 		float calculateNumberCells(float a, float b);
 		int calculatePositionInGrid(float coordinate, float origin);
-		vector<vector<Coordinates> > getCavitySeedPoint(Coordinates coordinates, Grid statistics, int &max_cavity_index, bool rectify);
-//		vector<vector<Coordinates> > getCavityNoSeedPoint(Grid statistics, bool rectify, int &max_cavity_index, int &max_cavity);
-		vector<vector<Coordinates> > getCavitiesNoSeedPoint(Grid statistics, int &max_cavity_index, int &max_cavity_position, bool rectify);
+		vector<vector<Coordinates> > getCavitySeedPoint(Coordinates coordinates, Grid statistics, int &max_cavity_index, int min, bool rectify);
+		vector<vector<Coordinates> > getCavitiesNoSeedPoint(Grid statistics, int &max_cavity_index, int &max_cavity_position, int min, bool rectify);
 //		vector<vector<Coordinates> > getCavitiesSeedPoint(Coordinates coord, Grid statistics, int &max_cavity_index, int &max_cavity_position, bool rectify);
-		vector<vector<Coordinates> > getCavities(Grid statistics, int &max_cavity_index, int &max_cavity_position, bool rectify, int x_min, int x_max, int y_min, int y_max, int z_min, int z_max);
+		vector<vector<Coordinates> > getCavities(Grid statistics, int &max_cavity_index, int &max_cavity_position, bool rectify, int x_min, int x_max, int y_min, int y_max, int z_min, int z_max, int min);
 		vector<Coordinates> getCavityEvolution(float cutoff,vector<Coordinates> last_cavity, int ***statistics, bool rectify);
 		vector<Coordinates> getCavity(int x, int y , int z, bool rectify, Grid statistics, int index);
 		void getNeighbourCandidate(int x, int y, int z, vector<int*>& neighbours, bool rectify, Grid statistics, int index);
@@ -76,13 +75,12 @@ class Grid {
 		int getTStartStatisitics();
 		void setDimensionsSearch(int dim);
 		int getDimensionsSearch();
-		float calculateBottleneckArea(int index,vector<Coordinates>& tunnel);
-		void getTunnel(vector<int*> subcavity,vector<int*> plane, int a , int b, vector<Coordinates>& tunnel);
-		//float rectangleXY(vector<int*> plane, int cavity);
+		void setAxisDependentInfo(int axis, int &ilimit, int &jlimit, int &klimit, int &a, int &b);
+		map<int,float> calculateBottleneckArea(int index,int axis, vector<Coordinates>& tunnel, float &bottleneck, bool sector);
+		map<int, float> getSectorTunnel(int index, int axis, int a, int b, vector<Coordinates>& tunnel, int bottleneck);
 		virtual ~Grid();
 		vector<Atom> getAtoms();
 		void setAtoms(vector<Atom> atoms);
-//		vector<vector<Coordinates> > maxCavity(vector<vector<Coordinates> > cavities, int &max_cavity);
 		//float refineVolume(float x, float y, float z);
 };
 

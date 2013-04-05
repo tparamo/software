@@ -30,6 +30,10 @@ void Coordinates::setZ(float z) {
 	this->z = z;
 }
 
+void Coordinates::setGridCoordinate(int *coor){
+	this->gridCoor = coor;
+}
+
 
 float Coordinates::getX() {
 	return x;
@@ -43,6 +47,23 @@ float Coordinates::getZ() {
 	return z;
 }
 
+int* Coordinates::getGridCoordinate(){
+	return this->gridCoor;
+}
+
+float Coordinates::getCoordinate(int axis){
+	switch (axis){
+		case 0:
+			return this->x; break;
+		case 1:
+			return this->y; break;
+		case 2:
+			return this->z; break;
+		default:
+			return 0;
+	}
+}
+
 Coordinates::~Coordinates() {
-	// TODO Auto-generated destructor stub
+	//delete this->gridCoor;
 }
