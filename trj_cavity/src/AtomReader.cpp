@@ -83,7 +83,7 @@ struct t_cavity_options
 	int dim; /* Number of dimensions to cover by the protein */
 	int skip; /* Frames to skip when processing trajectory */
 	float spacing; /* Grid spacing */
-	int t_stat; /* Time to strat calculating statistics */
+	float t_stat; /* Time to strat calculating statistics */
 	bool rectify; /* Rectify output?*/
 	bool ff_radius; /* use force field radius*/
 	bool sol; /* water monitoring */
@@ -257,9 +257,9 @@ void writeTrajectory(t_trxstatus *trjfile, vector<vector<Coordinates> > v, t_trx
 	write_trxframe(trjfile, &frout, NULL);
 }
 
-int getSolventCount(vector<Atom> waters, vector<vector<Coordinates> > v, Grid& water_statistics, int frame);
+int getSolventCount(vector<Atom> waters, vector<vector<Coordinates> > v, Grid& water_statistics, float frame);
 
-int getSolventCount(vector<Atom> waters, vector<vector<Coordinates> > v, Grid& water_statistics, int time){
+int getSolventCount(vector<Atom> waters, vector<vector<Coordinates> > v, Grid& water_statistics, float time){
 	//this part is for water monitoring ->make it fancier!!
 	int solvent_count = 0;
 	Atom sol;
@@ -435,21 +435,29 @@ int getVolume(Grid grid, t_cavity_options *opt, t_trxframe *fr, vector<Atom> wat
 	AtomWriter writer;
 	int index;
 
+	int max_cavity = 0;
+
 	if(opt->use_seed==true){
 		Coordinates seed(opt->seed[0], opt->seed[1], opt->seed[2]);
-		v = grid.getCavitySeedPoint(seed, opt->params.statistics, index, (int)opt->min, opt->rectify);
-		if(fr->time>0.0 && v.size()==0){
-			for(unsigned i = 0; i<opt->params.v[0].size();i++){
-				v = grid.getCavitySeedPoint(opt->params.v[0][i], opt->params.statistics, index, (int)opt->min, opt->rectify);
-				if(v.size()>0){
-					writer.preprocessVolumeCavities(v.size(), v, opt->params.v, opt->spacing);
-					break;
+		if(opt->mode==0){
+			v = grid.getCavitySeedPoint(seed, opt->params.statistics, index, (int)opt->min, opt->rectify);
+			if(v.size()==0 && opt->params.v.size()>0){
+				for(unsigned i = 0; i<opt->params.v[0].size();i++){
+					v = grid.getCavitySeedPoint(opt->params.v[0][i], opt->params.statistics, index, (int)opt->min, opt->rectify);
+					if(v.size()>0) break;
+				}
+			}
+		}else{
+			v = grid.getCavitiesSeedPoint(seed, opt->params.statistics, index, max_cavity, (int)opt->min, opt->rectify);
+			if(v.size()==0 && opt->params.v.size()>0){
+				for(unsigned i = 0; i<opt->params.v[0].size();i++){
+					v = grid.getCavitiesSeedPoint(opt->params.v[0][i], opt->params.statistics, index, max_cavity, (int)opt->min, opt->rectify);
+					if(v.size()>0) break;
 				}
 			}
 		}
 		if(v.size()==0) fprintf(opt->files.log, "No cavity found for coordinates %8.3f %8.3f %8.3f\n", opt->seed[0],opt->seed[1],opt->seed[2]);
 	}else{
-		int max_cavity = 0;
 		vector<vector<Coordinates> > aux = grid.getCavitiesNoSeedPoint(opt->params.statistics, index, max_cavity, (int)opt->min, opt->rectify);
 		if(opt->mode==0){
 			if(aux.size()>0){
@@ -468,35 +476,37 @@ int getVolume(Grid grid, t_cavity_options *opt, t_trxframe *fr, vector<Atom> wat
 	fprintf(opt->files.log, "Number of cavities %d. Total size of the cavity: %d\n", (int)v.size(), size);
 
 	if(opt->mode == 0){
-		writer.writeVolumeFrame(size,opt->spacing, opt->params.frame, opt->files.fvolume);
+		writer.writeVolumeFrame(size,opt->spacing, fr->time, opt->files.fvolume);
 	}else{
 		vector<int> volume_cavities = writer.preprocessVolumeCavities(size, v, opt->params.v, opt->spacing);
 		opt->params.volume_cavities.insert(make_pair(fr->time, volume_cavities));
 	}
 
 	if(opt->sol){
-		int water_count = getSolventCount(waters, v, opt->params.water_statistics, (int)fr->time);
-		if(opt->files.fsolcount!=NULL) writer.writeSolventFrame(water_count,opt->spacing,(int)fr->time, opt->files.fsolcount);
+		int water_count = getSolventCount(waters, v, opt->params.water_statistics, fr->time);
+		if(opt->files.fsolcount!=NULL) writer.writeSolventFrame(water_count,opt->spacing, fr->time, opt->files.fsolcount);
 	}
 
-	if((int)fr->time >= opt->params.statistics.getTStartStatisitics()){
+	if(fr->time >= opt->params.statistics.getTStartStatisitics()){
 		fprintf(opt->files.log, "Calculating statistics... \n");
 		updateStatistics(v, opt->params.statistics);
 		opt->params.frame_stat = opt->params.frame_stat + 1;
 	}
 
-	if(size>0){
-		cavityToTrajectory(opt, fr, v, size, false);
-	}else{
-		int* aux = new int[3];
-		aux[0] = 0; aux[1] = 0; aux[2] = 0;
-		Coordinates dummy = grid.calculateCoordinateInGrid(aux);
-		vector<Coordinates> a;
-		for(int i=0; i<opt->params.min_size;i ++){
-			a.push_back(dummy);
+	if(opt->params.frame==0 || opt->files.ftrajectory!=NULL){
+		if(size>0){
+			cavityToTrajectory(opt, fr, v, size, false);
+		}else{
+			int* aux = new int[3];
+			aux[0] = 0; aux[1] = 0; aux[2] = 0;
+			Coordinates dummy = grid.calculateCoordinateInGrid(aux);
+			vector<Coordinates> a;
+			for(int i=0; i<opt->params.min_size;i ++){
+				a.push_back(dummy);
+			}
+			v.push_back(a);
+			fprintf(opt->files.log, "No cavity!\n");
 		}
-		v.push_back(a);
-		fprintf(opt->files.log, "No cavity!\n");
 	}
 
 	fflush(opt->files.fvolume);
@@ -511,33 +521,36 @@ int getVolume(Grid grid, t_cavity_options *opt, t_trxframe *fr, vector<Atom> wat
 		vector<Coordinates> tunnel;
 		float bottleneck = 0.0;
 
-		if((int)fr->time>opt->t_stat){
+		if(fr->time>opt->t_stat){
 			map<int, float> sector = grid.calculateBottleneckArea(index, opt->axis, tunnel, bottleneck, true);
 			updateTunnelSection(sector, opt->params.acc_sector);
 		}else{
 			grid.calculateBottleneckArea(index, opt->axis, tunnel, bottleneck, false);
 		}
 
-		writer.writeBottleneckAreaFrame(bottleneck, (int)fr->time, opt->files.fbottleneck);
+
+		if(opt->files.fbottleneck!=NULL) writer.writeBottleneckAreaFrame(bottleneck, fr->time, opt->files.fbottleneck);
 		fprintf(opt->files.log, "Tunnel found. Bottleneck section area %8.3f\n", bottleneck);
 
-		vector<vector<Coordinates> > tunnels;
-		if(tunnel.size()>0){
-			tunnels.push_back(tunnel);
-			cavityToTrajectory(opt, fr, tunnels, tunnel.size(), true);
-		}else{
-			int* aux = new int[3];
-			aux[0] = 0; aux[1] = 0; aux[2] = 0;
-			Coordinates dummy = grid.calculateCoordinateInGrid(aux);
-			vector<Coordinates> a;
-			for(int i=0; i<opt->params.tunnel_size;i ++){
-				tunnel.push_back(dummy);
+		if((opt->files.ftunnel!=NULL && opt->params.frame==0) || opt->files.ftunnel_trajectory!=NULL){
+			vector<vector<Coordinates> > tunnels;
+			if(tunnel.size()>0){
+				tunnels.push_back(tunnel);
+				cavityToTrajectory(opt, fr, tunnels, tunnel.size(), true);
+			}else{
+				int* aux = new int[3];
+				aux[0] = 0; aux[1] = 0; aux[2] = 0;
+				Coordinates dummy = grid.calculateCoordinateInGrid(aux);
+				vector<Coordinates> a;
+				for(int i=0; i<opt->params.tunnel_size;i ++){
+					tunnel.push_back(dummy);
+				}
+				tunnels.push_back(a);
+				fprintf(opt->files.log, "No tunnel!\n");
 			}
-			tunnels.push_back(a);
-			fprintf(opt->files.log, "No tunnel!\n");
-		}
-		if(opt->files.ftunnel_trajectory){
-			writeTrajectory(opt->files.ftunnel_trajectory, tunnels, fr, opt->params.tunnel_size);
+			if(opt->files.ftunnel_trajectory){
+				writeTrajectory(opt->files.ftunnel_trajectory, tunnels, fr, opt->params.tunnel_size);
+			}
 		}
 	}
 
@@ -750,7 +763,7 @@ void AtomReader::start(int argc,char *argv[]){
 	opt.skip = 1;
 	opt.min  = 50;
 	opt.spacing = 1.4;
-	opt.t_stat = 0;
+	opt.t_stat = 0.0;
 	opt.seed[0] = 0.0;
 	opt.seed[1] = 0.0;
 	opt.seed[2] = 0.0;

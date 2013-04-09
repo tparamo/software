@@ -26,7 +26,7 @@ class Grid {
 		float originZ;
 		float spacing;
 		int ca_limits[6];
-		int tStartStatistics;
+		float tStartStatistics;
 		int dimensionsSearch;
 		vector<Atom> atoms;
 
@@ -41,7 +41,7 @@ class Grid {
 		int calculatePositionInGrid(float coordinate, float origin);
 		vector<vector<Coordinates> > getCavitySeedPoint(Coordinates coordinates, Grid statistics, int &max_cavity_index, int min, bool rectify);
 		vector<vector<Coordinates> > getCavitiesNoSeedPoint(Grid statistics, int &max_cavity_index, int &max_cavity_position, int min, bool rectify);
-//		vector<vector<Coordinates> > getCavitiesSeedPoint(Coordinates coord, Grid statistics, int &max_cavity_index, int &max_cavity_position, bool rectify);
+		vector<vector<Coordinates> > getCavitiesSeedPoint(Coordinates seed, Grid statistics, int &max_cavity_index, int &max_cavity_position, int min, bool rectify);
 		vector<vector<Coordinates> > getCavities(Grid statistics, int &max_cavity_index, int &max_cavity_position, bool rectify, int x_min, int x_max, int y_min, int y_max, int z_min, int z_max, int min);
 		vector<Coordinates> getCavityEvolution(float cutoff,vector<Coordinates> last_cavity, int ***statistics, bool rectify);
 		vector<Coordinates> getCavity(int x, int y , int z, bool rectify, Grid statistics, int index);
@@ -71,8 +71,8 @@ class Grid {
 		float getOriginZ();
 		float getSpacing();
 		void setCAplhaLimits(float x_max, float x_min, float y_max, float y_min, float z_max, float z_min);
-		void setTStartStatisitics(int tstat);
-		int getTStartStatisitics();
+		void setTStartStatisitics(float tstat);
+		float getTStartStatisitics();
 		void setDimensionsSearch(int dim);
 		int getDimensionsSearch();
 		void setAxisDependentInfo(int axis, int &ilimit, int &jlimit, int &klimit, int &a, int &b);

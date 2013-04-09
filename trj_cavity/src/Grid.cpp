@@ -129,37 +129,45 @@ vector<vector<Coordinates> > Grid::getCavitySeedPoint(Coordinates seed, Grid sta
 			}
 		}
 		if(cavities.size()<1){
-			int pos = 5/spacing;
-
-			int start_x = x - pos;
-			int end_x = x + pos;
-
-			if(start_x<0) start_x=0;
-			if(end_x>=width) end_x = width-1;
-
-			int start_y = y - pos;
-			int end_y = y + pos;
-
-			if(start_y<0) start_y=0;
-			if(end_y>=height) end_y = height-1;
-
-			int start_z = z - pos;
-			int end_z = z + pos;
-
-			if(start_z<0) start_z=0;
-			if(end_z>=depth) end_z = depth-1;
-
 			int max_cavity_position=0;
-			vector<vector<Coordinates> > aux = getCavities(statistics, max_cavity_index, max_cavity_position, rectify, start_x, end_x, start_y, end_y, start_z, end_z, 1);
+			vector<vector<Coordinates> > aux = getCavitiesSeedPoint(seed, statistics, max_cavity_index, max_cavity_position, min, rectify);
 			if(aux.size()>0){
 				cavities.push_back(aux[max_cavity_position]);
 			}
 		}
 	}else{
-		cout<<"Seed coordinate is out of the grid\n";
+		cout<<"Seed coordinate is out of the grid "<<x<<" "<<y<<" "<<z<<" "<<width<<" "<<height<<" "<<depth<<"\n";
 	}
 
 	return cavities;
+}
+
+vector<vector<Coordinates> > Grid::getCavitiesSeedPoint(Coordinates seed, Grid statistics, int &max_cavity_index, int &max_cavity_position, int min, bool rectify){
+	int pos = 5/spacing;
+
+	int x = calculatePositionInGrid(seed.getX(), originX);
+	int y = calculatePositionInGrid(seed.getY(), originY);
+	int z = calculatePositionInGrid(seed.getZ(), originZ);
+
+	int start_x = x - pos;
+	int end_x = x + pos;
+
+	if(start_x<0) start_x=0;
+	if(end_x>=width) end_x = width-1;
+
+	int start_y = y - pos;
+	int end_y = y + pos;
+
+	if(start_y<0) start_y=0;
+	if(end_y>=height) end_y = height-1;
+
+	int start_z = z - pos;
+	int end_z = z + pos;
+
+	if(start_z<0) start_z=0;
+	if(end_z>=depth) end_z = depth-1;
+
+	return getCavities(statistics, max_cavity_index, max_cavity_position, rectify, start_x, end_x, start_y, end_y, start_z, end_z, min);
 }
 
 vector<vector<Coordinates> > Grid::getCavitiesNoSeedPoint(Grid statistics, int &max_cavity_index, int &max_cavity_position, int min, bool rectify){
@@ -969,11 +977,11 @@ int*** Grid::getGrid(){
 	return grid;
 }
 
-void Grid::setTStartStatisitics(int tstat){
+void Grid::setTStartStatisitics(float tstat){
 	tStartStatistics = tstat;
 }
 
-int Grid::getTStartStatisitics(){
+float Grid::getTStartStatisitics(){
 	return tStartStatistics;
 }
 

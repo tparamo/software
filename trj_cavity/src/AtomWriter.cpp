@@ -245,7 +245,7 @@ void AtomWriter::writeSectionAreaFrame(map<int,pair<vector<float>, float> > sect
 		}
 		sd = sqrt(sd/n);
 
-		fprintf(file,"%d %8.3f %8.3\n",  it->first, mean, sd);
+		fprintf(file,"%d %8.3f %8.3f\n",  it->first, mean, sd);
 	}
 
 	fflush(file);
