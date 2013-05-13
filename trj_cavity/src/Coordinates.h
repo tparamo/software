@@ -17,7 +17,7 @@ class Coordinates {
 		float x;
 		float y;
 		float z;
-		int *gridCoor;
+		int gridCoor[3];
 
 	public:
 		Coordinates();

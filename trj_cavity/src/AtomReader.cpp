@@ -92,6 +92,8 @@ struct t_cavity_options
 	rvec seed; /* seed point */
 	int axis; /* Tunnel orientation */
 	bool use_seed;
+	float area; /* Axis value to inspect area*/
+	float cutoff; /* Axis value to inspect area*/
 
 	t_file_pointers files; /* file pointers */
 
@@ -160,26 +162,30 @@ Grid AtomReader::initializeGrid(Grid grid, vector<Atom> atoms){
 	float spacing = grid.getSpacing();
 	int cell_center_x, cell_center_y,cell_center_z;
 	int *x_cells,*y_cells,*z_cells;
+	Atom atom;
 
 	int x, y, z;
 
 	for(unsigned int i=0;i<atoms.size();i++){
 
-		cell_center_x = grid.calculatePositionInGrid(atoms[i].getCoordinates().getX(), grid.getOriginX());
-		cell_center_y = grid.calculatePositionInGrid(atoms[i].getCoordinates().getY(), grid.getOriginY());
-		cell_center_z = grid.calculatePositionInGrid(atoms[i].getCoordinates().getZ(), grid.getOriginZ());
+		atom = atoms[i];
+
+		cell_center_x = grid.calculatePositionInGrid(atom.getCoordinates().getX(), grid.getOriginX());
+		cell_center_y = grid.calculatePositionInGrid(atom.getCoordinates().getY(), grid.getOriginY());
+		cell_center_z = grid.calculatePositionInGrid(atom.getCoordinates().getZ(), grid.getOriginZ());
 
 		//Apply the atom radius
 
-		if((atoms[i].getVdwRadius())*2>spacing){
-			x_cells = distanceCells(spacing, atoms[i].getVdwRadius(), cell_center_x, grid.getWidth());
-			y_cells = distanceCells(spacing, atoms[i].getVdwRadius(), cell_center_y, grid.getHeight());
-			z_cells = distanceCells(spacing, atoms[i].getVdwRadius(), cell_center_z, grid.getDepth());
+		if((atom.getVdwRadius())*2>spacing){
+			x_cells = grid.getDistanceCells(atom.getVdwRadius(), cell_center_x, grid.getWidth());
+			y_cells = grid.getDistanceCells(atom.getVdwRadius(), cell_center_y, grid.getHeight());
+			z_cells = grid.getDistanceCells(atom.getVdwRadius(), cell_center_z, grid.getDepth());
 		}else{
 			x_cells = new int[2]; x_cells[0] = cell_center_x; x_cells[1] = cell_center_x;
 			y_cells = new int[2]; y_cells[0] = cell_center_y; y_cells[1] = cell_center_y;
 			z_cells = new int[2]; z_cells[0] = cell_center_z; z_cells[1] = cell_center_z;
 		}
+
 
 		for(x=x_cells[0]; x<=x_cells[1];x++){
 			for(y=y_cells[0]; y<=y_cells[1];y++){
@@ -197,7 +203,7 @@ Grid AtomReader::initializeGrid(Grid grid, vector<Atom> atoms){
 	return grid;
 }
 
-int* AtomReader::distanceCells(float spacing, float radius, int center, int limit){
+/*int* AtomReader::distanceCells(float spacing, float radius, int center, int limit){
 	int* result = new int[2];
 
 	float p_distance = radius/spacing;
@@ -228,7 +234,7 @@ int* AtomReader::distanceCells(float spacing, float radius, int center, int limi
 	result[1] = center + p_positions;
 
 	return result;
-}
+}*/
 
 //GROMACS area
 
@@ -255,49 +261,82 @@ void writeTrajectory(t_trxstatus *trjfile, vector<vector<Coordinates> > v, t_trx
 	frout.natoms = size;
 
 	write_trxframe(trjfile, &frout, NULL);
+
+	free(frout.x);
 }
 
-int getSolventCount(vector<Atom> waters, vector<vector<Coordinates> > v, Grid& water_statistics, float frame);
+int getSolventCount(vector<Atom> waters, Grid grid, Grid& water_statistics, float frame);
 
-int getSolventCount(vector<Atom> waters, vector<vector<Coordinates> > v, Grid& water_statistics, float time){
-	//this part is for water monitoring ->make it fancier!!
+int getSolventCount(vector<Atom> waters, Grid grid, vector<vector<Coordinates> > v, Grid& water_statistics, float time){
+
 	int solvent_count = 0;
 	Atom sol;
 	vector<Coordinates> c;
-	Coordinates coor_sol;
+	Coordinates coor_sol, coor_stat;
+	set<int> cavity_indexes;
 
-	set<pair<string, int> > residues;
+	int cell_center_x, cell_center_y, cell_center_z = 0;
 
-	float spacing = water_statistics.getSpacing()/2.0;
+	float spacing = grid.getSpacing();
+
+	for(unsigned int i=0; i<v.size(); i++){
+		cavity_indexes.insert(grid.getGrid()[v[i][0].getGridCoordinate()[0]][v[i][0].getGridCoordinate()[1]][v[i][0].getGridCoordinate()[2]]);
+	}
 
 	for(unsigned int k=0; k<waters.size(); k++){
+
 		sol = waters[k];
 		coor_sol = sol.getCoordinates();
 
-		for(unsigned int i=0; i<v.size(); i++){
-			c = v[i];
-			for(unsigned int j=0; j<c.size(); j++){
+		cell_center_x = grid.calculatePositionInGrid(coor_sol.getX(), grid.getOriginX());
+		cell_center_y = grid.calculatePositionInGrid(coor_sol.getY(), grid.getOriginY());
+		cell_center_z = grid.calculatePositionInGrid(coor_sol.getZ(), grid.getOriginZ());
 
-				if((coor_sol.getX()<=c[j].getX()+spacing) && (coor_sol.getX()>c[j].getX()-spacing)) {
-					if((coor_sol.getY()<=c[j].getY()+spacing) && (coor_sol.getY()>c[j].getY()-spacing)) {
-						if((coor_sol.getZ()<=c[j].getZ()+spacing) && (coor_sol.getZ()>c[j].getZ()-spacing)) {
+		if(cell_center_x>=0 && cell_center_x<grid.getWidth() && cell_center_y>=0 && cell_center_y<grid.getHeight() && cell_center_z>=0 && cell_center_z<grid.getDepth()){
 
-							if(residues.find(make_pair(sol.getName(), sol.getResId()))==residues.end()){
-								solvent_count ++;
-								residues.insert(make_pair(sol.getName(), sol.getResId()));
-							}
+			if(cavity_indexes.size()>0 && cavity_indexes.find(grid.getGrid()[cell_center_x][cell_center_y][cell_center_z])!=cavity_indexes.end()){
 
-							if(water_statistics.getTStartStatisitics()<=time){
-								int x = water_statistics.calculatePositionInGrid(c[j].getX(),water_statistics.getOriginX());
-								int y = water_statistics.calculatePositionInGrid(c[j].getY(),water_statistics.getOriginY());
-								int z = water_statistics.calculatePositionInGrid(c[j].getZ(),water_statistics.getOriginZ());
+				solvent_count ++;
+
+				if(water_statistics.getTStartStatisitics()<=time){
+
+					int *x_cells, *y_cells, *z_cells, *coor;
+					int x, y, z = 0;
+
+					//Apply the atom radius
+
+					if((sol.getVdwRadius())*2>spacing){
+						x_cells = grid.getDistanceCells(sol.getVdwRadius(), cell_center_x, grid.getWidth());
+						y_cells = grid.getDistanceCells(sol.getVdwRadius(), cell_center_y, grid.getHeight());
+						z_cells = grid.getDistanceCells(sol.getVdwRadius(), cell_center_z, grid.getDepth());
+					}else{
+						x_cells = new int[2]; x_cells[0] = cell_center_x; x_cells[1] = cell_center_x;
+						y_cells = new int[2]; y_cells[0] = cell_center_y; y_cells[1] = cell_center_y;
+						z_cells = new int[2]; z_cells[0] = cell_center_z; z_cells[1] = cell_center_z;
+					}
+
+					for(x=x_cells[0]; x<=x_cells[1];x++){
+						for(y=y_cells[0]; y<=y_cells[1];y++){
+							for(z=z_cells[0]; z<=z_cells[1];z++){
+
+								int *coor = new int[3]; coor[0] =x; coor[1]=y; coor[2]=z;
+								coor_stat = grid.calculateCoordinateInGrid(coor);
+
+								int x = water_statistics.calculatePositionInGrid(coor_stat.getX(),water_statistics.getOriginX());
+								int y = water_statistics.calculatePositionInGrid(coor_stat.getY(),water_statistics.getOriginY());
+								int z = water_statistics.calculatePositionInGrid(coor_stat.getZ(),water_statistics.getOriginZ());
 
 								if(water_statistics.getWidth()!=0 && (x<water_statistics.getWidth()) && (y>0) && (y<water_statistics.getHeight()) && (z>0) && (z<water_statistics.getDepth())){
 									water_statistics.getGrid()[x][y][z] = water_statistics.getGrid()[x][y][z]+1;
 								}
+
+								delete [] coor;
 							}
 						}
 					}
+					delete[] x_cells;
+					delete[] y_cells;
+					delete[] z_cells;
 				}
 			}
 		}
@@ -309,6 +348,7 @@ int getSolventCount(vector<Atom> waters, vector<vector<Coordinates> > v, Grid& w
 int updateStatistics(vector<vector<Coordinates> > v, Grid& statistics);
 
 int updateStatistics(vector<vector<Coordinates> > v, Grid& statistics){
+
 	for(unsigned int i=0; i<v.size(); i++){
 		vector<Coordinates> c = v[i];
 		for(unsigned int j=0; j<c.size(); j++){
@@ -363,14 +403,16 @@ int cavityToTrajectory(t_cavity_options *opt, t_trxframe *fr, vector<vector<Coor
 	AtomWriter writer;
 
 	if(opt->params.frame == 0) {
+
 		if(!tunnel){
 			opt->params.min_size = size + 1000;
 		}else{
 			opt->params.tunnel_size = size + 1000;
 		}
+
 		for(i=0; i<1000; i++){
 			//Dummy coordinates! To ensure we have an initial cavity in case it just appears along the simulation
-			Coordinates dummy = v[0][0];
+			Coordinates dummy(v[0][0].getX(), v[0][0].getY(), v[0][0].getZ());
 			v[0].push_back(dummy);
 		}
 
@@ -393,7 +435,7 @@ int cavityToTrajectory(t_cavity_options *opt, t_trxframe *fr, vector<vector<Coor
 			if(dif>0){
 				for(int i=0; i<dif; i++){
 					//Dummy coordinates!
-					Coordinates dummy = v[0][0];
+					Coordinates dummy(v[0][0].getX(), v[0][0].getY(), v[0][0].getZ());
 					v[0].push_back(dummy);
 				}
 			}else{
@@ -483,7 +525,7 @@ int getVolume(Grid grid, t_cavity_options *opt, t_trxframe *fr, vector<Atom> wat
 	}
 
 	if(opt->sol){
-		int water_count = getSolventCount(waters, v, opt->params.water_statistics, fr->time);
+		int water_count = getSolventCount(waters, grid, v, opt->params.water_statistics, fr->time);
 		if(opt->files.fsolcount!=NULL) writer.writeSolventFrame(water_count,opt->spacing, fr->time, opt->files.fsolcount);
 	}
 
@@ -511,7 +553,7 @@ int getVolume(Grid grid, t_cavity_options *opt, t_trxframe *fr, vector<Atom> wat
 
 	fflush(opt->files.fvolume);
 
-	if(opt->files.ftrajectory){
+	if(opt->files.ftrajectory!=NULL){
 		writeTrajectory(opt->files.ftrajectory, v, fr, opt->params.min_size);
 	}
 
@@ -522,10 +564,10 @@ int getVolume(Grid grid, t_cavity_options *opt, t_trxframe *fr, vector<Atom> wat
 		float bottleneck = 0.0;
 
 		if(fr->time>opt->t_stat){
-			map<int, float> sector = grid.calculateBottleneckArea(index, opt->axis, tunnel, bottleneck, true);
+			map<int, float> sector = grid.calculateBottleneckArea(index, opt->axis, tunnel, bottleneck, opt->area, true);
 			updateTunnelSection(sector, opt->params.acc_sector);
 		}else{
-			grid.calculateBottleneckArea(index, opt->axis, tunnel, bottleneck, false);
+			grid.calculateBottleneckArea(index, opt->axis, tunnel, bottleneck, opt->area, false);
 		}
 
 
@@ -548,7 +590,7 @@ int getVolume(Grid grid, t_cavity_options *opt, t_trxframe *fr, vector<Atom> wat
 				tunnels.push_back(a);
 				fprintf(opt->files.log, "No tunnel!\n");
 			}
-			if(opt->files.ftunnel_trajectory){
+			if(opt->files.ftunnel_trajectory!=NULL){
 				writeTrajectory(opt->files.ftunnel_trajectory, tunnels, fr, opt->params.tunnel_size);
 			}
 		}
@@ -617,12 +659,23 @@ int analyze_frame(t_topology * top, t_trxframe * fr, t_pbc * pbc, int nr, gmx_an
 				a = opt->params.sol_index[i];
 				if((fr->x[a][XX]*FACTOR<=limits[0]) and (fr->x[a][XX]*FACTOR >= limits[3] and (fr->x[a][YY]*FACTOR <= limits[1]) and (fr->x[a][YY]*FACTOR >= limits[4]) and (fr->x[a][ZZ]*FACTOR <= limits[2]) and (fr->x[a][ZZ]*FACTOR >= limits[5])) ){
 					Atom atom;
+					char atom_n;
+					if(top->atoms.atomname[a][0][0]=='N' and top->atoms.atomname[a][0][1]=='A'){
+						atom_n = '1';
+					}else{
+						if(top->atoms.atomname[a][0][0]=='C' and top->atoms.atomname[a][0][1]=='L'){
+							atom_n = '2';
+						}else{
+							atom_n =top->atoms.atomname[a][0][0];
+						}
+					}
+
 					if(!opt->ff_radius /*|| (opt->ff_radius && opt->sol_radii[i]==0)*/){
-						Atom aux(top->atoms.atomname[a][0][0],Coordinates(fr->x[a][XX]*FACTOR,fr->x[a][YY]*FACTOR,fr->x[a][ZZ]*FACTOR));
+						Atom aux(atom_n,Coordinates(fr->x[a][XX]*FACTOR,fr->x[a][YY]*FACTOR,fr->x[a][ZZ]*FACTOR));
 						aux.setResId(top->atoms.atom[a].resind);
 						atom = aux;
 					}else{
-						Atom aux(top->atoms.atomname[a][0][0],Coordinates(fr->x[a][XX]*FACTOR,fr->x[a][YY]*FACTOR,fr->x[a][ZZ]*FACTOR), opt->params.sol_radii[i]);
+						Atom aux(atom_n,Coordinates(fr->x[a][XX]*FACTOR,fr->x[a][YY]*FACTOR,fr->x[a][ZZ]*FACTOR), opt->params.sol_radii[i]);
 						atom = aux;
 					}
 					waters.push_back(atom);
@@ -630,16 +683,16 @@ int analyze_frame(t_topology * top, t_trxframe * fr, t_pbc * pbc, int nr, gmx_an
 			}
 		}
 
-		Grid grid(opt->spacing, limits[0], limits[3], limits[1], limits[4], limits[2], limits[5]);
+		Grid grid(opt->spacing, limits[0], limits[3], limits[1], limits[4], limits[2], limits[5], opt->cutoff);
 		grid.setDimensionsSearch(opt->dim);
 		grid.setAtoms(selection);
 
 		if(opt->params.frame == 0){
-			Grid stat(opt->spacing, limits[0], limits[3], limits[1], limits[4], limits[2], limits[5]);
+			Grid stat(opt->spacing, limits[0], limits[3], limits[1], limits[4], limits[2], limits[5], opt->cutoff);
 			stat.setTStartStatisitics(opt->t_stat);
 			opt->params.statistics = stat;
 			if(opt->sol==true){
-				Grid wat(opt->spacing, limits[0], limits[3], limits[1], limits[4], limits[2], limits[5]);
+				Grid wat(opt->spacing, limits[0], limits[3], limits[1], limits[4], limits[2], limits[5], opt->cutoff);
 				wat.setTStartStatisitics(opt->t_stat);
 				opt->params.water_statistics = wat;
 			}
@@ -675,7 +728,6 @@ int analyze_frame(t_topology * top, t_trxframe * fr, t_pbc * pbc, int nr, gmx_an
 		getVolume(grid, opt, fr, waters);
 
 		grid.deleteGrid();
-
 	}
 
 	opt->params.frame = opt->params.frame + 1;
@@ -756,6 +808,8 @@ void AtomReader::start(int argc,char *argv[]){
 			{ "-axis", FALSE , etENUM, { orientation },  "Orientation of the protein for tunnel calculation"},
 			{ "-ca", NULL, etBOOL, {&opt.ca},  "Only cavities enclosed in the backbone"},
 			{ "-seed", FALSE, etRVEC,{&opt.seed}, "Coordinates of the seed point"},
+			{ "-area", FALSE, etREAL ,{&opt.area}, "Axis value to be inspected"},
+			{ "-cutoff", FALSE, etREAL ,{&opt.cutoff}, "Cut-off (test)"}
 	};
 
 	opt.dim = 5;
@@ -768,6 +822,8 @@ void AtomReader::start(int argc,char *argv[]){
 	opt.seed[1] = 0.0;
 	opt.seed[2] = 0.0;
 	opt.axis = 2;
+	opt.area = NULL;
+	opt.cutoff = 0;
 
 	opt.params.min_size = 0;
 	opt.params.tunnel_size = 0;
@@ -906,8 +962,9 @@ void AtomReader::start(int argc,char *argv[]){
 
 	/* Open output files: optional files */
 
-	if(opt2fn_null("-os",NFILE,fnm)) opt.files.fsolcount =xvgropen(opt2fn("-os", NFILE, fnm), "Solvent Molecules Count", "Time [ps]", "Solvent molecules", oenv);
+	if(opt2fn_null("-os",NFILE,fnm)) opt.files.fsolcount =xvgropen(opt2fn("-os", NFILE, fnm), "Solvent Atoms", "Time [ps]", "Solvent atoms", oenv);
 	if(opt2fn_null("-oba",NFILE,fnm)) opt.files.fbottleneck =xvgropen(opt2fn("-oba", NFILE, fnm), "Min. tunnel section area", "Time [ps]", "Area [angstroms\\S2\\N]", oenv);
+	if(opt2fn_null("-ob",NFILE,fnm) || opt2fn_null("-obt",NFILE,fnm)) opt.files.ftunnel =ffopen(opt2fn("-ob", NFILE, fnm),"w");
 
 	/* Do the actual analysis*/
 

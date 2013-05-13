@@ -18,7 +18,7 @@ Grid::Grid() {
 
 }
 
-Grid::Grid(float spacingGrid,float x_max, float x_min, float y_max, float y_min, float z_max, float z_min) {
+Grid::Grid(float spacingGrid,float x_max, float x_min, float y_max, float y_min, float z_max, float z_min, float cutoff) {
 	spacing = spacingGrid;
 
 	originX = x_min;
@@ -30,6 +30,15 @@ Grid::Grid(float spacingGrid,float x_max, float x_min, float y_max, float y_min,
 	depth = calculateNumberCells(z_max, z_min);
 
 	tStartStatistics = 0;
+
+	if(cutoff!=0){
+		this->cutoff = (int)((cutoff/spacing) + 0.5);
+	}else{
+		int max_aux = max(width, height);
+		int max_final = max(max_aux, depth);
+		this->cutoff = (max_final)/2;
+	}
+
 	initializeGrid();
 }
 
@@ -108,7 +117,43 @@ Coordinates Grid::calculateCoordinateInGrid(int* position){
 	y = (position[1]*spacing) + originY;
 	z = (position[2]*spacing) + originZ;
 
-	return Coordinates(x,y,z);
+	Coordinates c(x,y,z);
+	c.setGridCoordinate(position);
+
+	return c;
+}
+
+int* Grid::getDistanceCells(float radius, int center, int limit){
+	int* result = new int[2];
+
+	float p_distance = radius/spacing;
+	int p_positions = (int)p_distance;
+	if(center + p_positions <limit-1){
+		if((p_distance - p_positions)>0.5){
+			p_positions ++;
+		}
+	}else{
+		while(center + p_positions >limit-1 and p_positions>0){
+			p_positions --;
+		}
+	}
+
+	float n_distance = radius/spacing;
+	int n_positions = (int)n_distance;
+	if(center - n_positions > 0){
+		if((n_distance - n_positions)>0.5){
+			n_positions ++;
+		}
+	}else{
+		while(center - n_positions < 0 and n_positions>0){
+			n_positions --;
+		}
+	}
+
+	result[0] = center - n_positions;
+	result[1] = center + p_positions;
+
+	return result;
 }
 
 vector<vector<Coordinates> > Grid::getCavitySeedPoint(Coordinates seed, Grid statistics, int &max_cavity_index, int min, bool rectify){
@@ -661,18 +706,13 @@ int Grid::surroundedByZNegative(int x, int y, int z, int element, int pos){
 
 void Grid::getNeighbourCandidate(int x, int y, int z, vector<int*>& neighbours, bool rectify, Grid statistics, int index){
 
-	int max_aux = max((ca_limits[1]-ca_limits[0]), (ca_limits[3]-ca_limits[2]));
-	int max_final = max(max_aux, (ca_limits[5]-ca_limits[4]));
-
-	int pos = (max_final)/2;
-
 	if(grid[x][y][z]==0){
 
 		if(rectify){
 			if((x>0) && (x<statistics.getWidth()) && (y>0) && (y<statistics.getHeight()) && (z>0) && (z<statistics.getDepth())){
 				float percent = (float)statistics.getGrid()[x][y][z]/50.0;
 				if(percent>0.1){
-					if(isInsideCavityNew(x,y,z,pos,index)){
+					if(isInsideCavityNew(x,y,z,cutoff,index)){
 						int* n1 = new int[3];
 						n1[0] = x; n1[1] = y; n1[2] = z;
 						neighbours.push_back(n1);
@@ -682,7 +722,7 @@ void Grid::getNeighbourCandidate(int x, int y, int z, vector<int*>& neighbours, 
 				}
 			}
 		}else{
-			if(isInsideCavityNew(x,y,z,pos,index)){
+			if(isInsideCavityNew(x,y,z,cutoff,index)){
 				int* n1 = new int[3];
 				n1[0] = x; n1[1] = y; n1[2] = z;
 				neighbours.push_back(n1);
@@ -750,17 +790,17 @@ void Grid::setAxisDependentInfo(int axis, int &ilimit, int &jlimit, int &klimit,
 	}
 }
 
-
-
-
-map<int,float> Grid::calculateBottleneckArea(int index,int axis, vector<Coordinates>& tunnel, float &bottleneck, bool calculate_sector){
+map<int,float> Grid::calculateBottleneckArea(int index,int axis, vector<Coordinates>& tunnel, float &bottleneck, float area, bool calculate_sector){
 
 	int i,j,k,a,b;
 	int ilimit, jlimit, klimit;
+	int inspect_grid;
+	int max = 0;
 
 	map<int, float> sector;
 
 	vector<Coordinates> line;
+	vector<vector<Coordinates> > lines;
 	Coordinates c;
 	int plane = 0;
 
@@ -777,31 +817,44 @@ map<int,float> Grid::calculateBottleneckArea(int index,int axis, vector<Coordina
 						int *coor = new int[3];
 						coor[0]=i; coor[1]=j; coor[2]=k;
 						c = calculateCoordinateInGrid(coor);
-						c.setGridCoordinate(coor);
 						line.push_back(c);
+						delete [] coor;
 					}
 				}
 			}
 
 			//If the cavity line gets to the opposite plane it is a tunnel
-			if((k==klimit) && (int)line.size()>klimit/2){
+			if((k==klimit)  && (int)line.size()>klimit/2){
+				//if(line.size()>max) max = (int)line.size();
+				//lines.push_back(line);
 				tunnel.insert(tunnel.end(), line.begin(), line.end());
 				plane ++;
 			}
 		}
 	}
 
-	if(calculate_sector==true){
-		sector = getSectorTunnel(index,axis,a,b,tunnel,plane);
+	bottleneck=plane*(spacing*spacing);
+
+	if(area!=NULL){
+		//TODO:axis dependent please!
+		int inspect_grid = this->calculatePositionInGrid(area, originZ);
+
+		for(unsigned l=0; l<tunnel.size();l++){
+			if(tunnel[l].getGridCoordinate()[axis]==inspect_grid) {
+				bottleneck = getAreaAxis(tunnel[l].getGridCoordinate(), index, axis, a, b);
+				break;
+			}
+		}
 	}
 
-	bottleneck = plane*(spacing*spacing);
+	if(calculate_sector==true && tunnel.size()>0){
+		sector = getSectorTunnel(index,axis,a,b,tunnel,plane);
+	}
 
 	return sector;
 }
 
-map<int, float> Grid::getSectorTunnel(int index, int axis, int a, int b, vector<Coordinates>& tunnel, int bottleneck){
-
+map<int, float> Grid::getSectorTunnel(int index, int axis, int a, int b, vector<Coordinates>& tunnel, int plane){
 
 	vector<Coordinates> tunnel_extension;
 	map<pair<int,int>,int > looked_up;
@@ -809,14 +862,19 @@ map<int, float> Grid::getSectorTunnel(int index, int axis, int a, int b, vector<
 	vector<int*> candidates;
 	Coordinates coordinates;
 
-	int sector_acc, protrusion, erase, grid_value, round_value;
+	int sector_acc,protrusion, erase, grid_value, round_value;
 	int *member;
 	float axis_value;
 
 	for(unsigned l=0; l<tunnel.size(); l++){
 
 		axis_value = tunnel[l].getCoordinate(axis);
-		round_value = (int)(axis_value+0.5); //I round it to int, it makes it easier to compare keys
+		//I round it to int, it makes it easier to compare keys
+		if(axis_value<0){
+			round_value = (int)(axis_value-0.5);
+		}else{
+			round_value = (int)(axis_value+0.5);
+		}
 
 		if(sector.find(round_value)==sector.end()){
 
@@ -825,6 +883,7 @@ map<int, float> Grid::getSectorTunnel(int index, int axis, int a, int b, vector<
 			if(tunnel_extension.size()>0) tunnel_extension.clear();
 
 			sector_acc = 0;
+
 			candidates.push_back(tunnel[l].getGridCoordinate());
 
 			while(candidates.size()>0){
@@ -872,15 +931,60 @@ map<int, float> Grid::getSectorTunnel(int index, int axis, int a, int b, vector<
 				}
 			}
 
-			if(sector_acc<bottleneck) sector_acc =bottleneck;
+			if(sector_acc<plane) sector_acc =plane;
 			sector[round_value] = sector_acc*(spacing*spacing);
 
-			//cout<<tunnel[l].getGridCoordinate()[2]<<" "<<round_value<<" "<<sector[round_value]<<endl;
 			tunnel.insert(tunnel.end(), tunnel_extension.begin(), tunnel_extension.end());
 		}
 	}
 
 	return sector;
+}
+
+float Grid::getAreaAxis(int* seed, int index, int axis, int a, int b){
+
+	float bottleneck = 0;
+	int grid_value = 0;
+
+	map<pair<int,int>,int > looked_up;
+	vector<int*> candidates;
+	int* member;
+
+	candidates.push_back(seed);
+
+	while(candidates.size()>0){
+
+		member = candidates.back();
+		candidates.pop_back();
+		bottleneck ++;
+
+		looked_up[make_pair(member[a],member[b])]=0;
+
+		for(int i=-1; i<=1; i++){
+			for(int j=-1; j<=1; j++){
+				if(looked_up.find(make_pair(member[a]+i, member[b]+j))==looked_up.end()){
+					if(axis==0){
+						grid_value = grid[member[0]][member[1]+i][member[2]+j];
+					}else{
+						if(axis==1){
+							grid_value = grid[member[0]+i][member[1]][member[2]+j];
+						}else{
+							grid_value = grid[member[0]+i][member[1]+j][member[2]];
+						}
+					}
+
+					if(grid_value==index){
+						int *c = new int[3];
+						c[a]=member[a]+i; c[b]=member[b]+j; c[axis]=member[axis];
+						candidates.push_back(c);
+						looked_up[make_pair(c[a],c[b])]=0;
+					}
+				}
+			}
+		}
+	}
+
+	return bottleneck*(spacing*spacing);
 }
 
 /*float Grid::refineVolume(float xf, float yf, float zf){

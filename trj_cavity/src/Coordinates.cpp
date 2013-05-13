@@ -31,7 +31,9 @@ void Coordinates::setZ(float z) {
 }
 
 void Coordinates::setGridCoordinate(int *coor){
-	this->gridCoor = coor;
+	this->gridCoor[0] = coor[0];
+	this->gridCoor[1] = coor[1];
+	this->gridCoor[2] = coor[2];
 }
 
 
@@ -65,5 +67,5 @@ float Coordinates::getCoordinate(int axis){
 }
 
 Coordinates::~Coordinates() {
-	//delete this->gridCoor;
+	//delete [] gridCoor;
 }

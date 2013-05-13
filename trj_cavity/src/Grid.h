@@ -28,17 +28,19 @@ class Grid {
 		int ca_limits[6];
 		float tStartStatistics;
 		int dimensionsSearch;
+		int cutoff;
 		vector<Atom> atoms;
 
 	public:
 		Grid();
-		Grid(float spacingGrid,float x_max, float x_min, float y_max, float y_min, float z_max, float z_min);
+		Grid(float spacingGrid,float x_max, float x_min, float y_max, float y_min, float z_max, float z_min, float cutoff);
 		//do i need this anymore?
 		Grid(float spacingGrid, float x_min, float y_min, float z_min, int width, int height, int depth);
 		void initializeGrid();
 		float calculateDistance(float a, float b);
 		float calculateNumberCells(float a, float b);
 		int calculatePositionInGrid(float coordinate, float origin);
+		int* getDistanceCells(float radius, int center, int limit);
 		vector<vector<Coordinates> > getCavitySeedPoint(Coordinates coordinates, Grid statistics, int &max_cavity_index, int min, bool rectify);
 		vector<vector<Coordinates> > getCavitiesNoSeedPoint(Grid statistics, int &max_cavity_index, int &max_cavity_position, int min, bool rectify);
 		vector<vector<Coordinates> > getCavitiesSeedPoint(Coordinates seed, Grid statistics, int &max_cavity_index, int &max_cavity_position, int min, bool rectify);
@@ -76,8 +78,9 @@ class Grid {
 		void setDimensionsSearch(int dim);
 		int getDimensionsSearch();
 		void setAxisDependentInfo(int axis, int &ilimit, int &jlimit, int &klimit, int &a, int &b);
-		map<int,float> calculateBottleneckArea(int index,int axis, vector<Coordinates>& tunnel, float &bottleneck, bool sector);
-		map<int, float> getSectorTunnel(int index, int axis, int a, int b, vector<Coordinates>& tunnel, int bottleneck);
+		map<int,float> calculateBottleneckArea(int index,int axis, vector<Coordinates>& tunnel, float &bottleneck, float area, bool sector);
+		map<int, float> getSectorTunnel(int index, int axis, int a, int b, vector<Coordinates>& tunnel, int plane);
+		float getAreaAxis(int* seed, int index, int axis, int a, int b);
 		virtual ~Grid();
 		vector<Atom> getAtoms();
 		void setAtoms(vector<Atom> atoms);

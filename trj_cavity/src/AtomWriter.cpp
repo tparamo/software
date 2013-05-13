@@ -42,6 +42,7 @@ void AtomWriter::writePDB(vector<vector<Coordinates> > cavities, FILE* file){
 
 void AtomWriter::writeStatistics(Grid statistics, float gridspacing, int nframes, FILE* file){
 	stringstream ss;
+	int* position = new int[3];
 
 	//float volume[9] = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
 
@@ -51,7 +52,6 @@ void AtomWriter::writeStatistics(Grid statistics, float gridspacing, int nframes
 		for(int j=0; j<statistics.getHeight();j++){
 			for(int k=0; k<statistics.getDepth();k++){
 				if(statistics.getGrid()[i][j][k]!=0){
-					int* position = new int[3];
 					position[0] = i;
 					position[1] = j;
 					position[2] = k;
@@ -70,14 +70,15 @@ void AtomWriter::writeStatistics(Grid statistics, float gridspacing, int nframes
 					if(pc>=0.9) volume[8] = volume[8] + (gridspacing*gridspacing*gridspacing);*/
 
 
-					fprintf(file, "ATOM %6i PNT CAV  9999     %8.3f%8.3f%8.3f  1.00%6.2f\n",
-						atom,c.getX(),c.getY(),c.getZ(), pc);
+					fprintf(file, "ATOM %6i PNT CAV A%4i    %8.3f%8.3f%8.3f  1.00%6.2f\n", atom, 1, c.getX(),c.getY(),c.getZ(), pc);
 
 					atom ++;
 				}
 			}
 		}
 	}
+
+	delete [] position;
 
 	//writeVolumeProbability(volume);
 

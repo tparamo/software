@@ -33,7 +33,7 @@ class AtomReader {
         //Grid readPDB(FILE* pdbfile, float gridspacing, bool gromos);
 		void calculateLimitsGrid(float *limits, Atom a);
 		Grid initializeGrid(Grid grid,vector<Atom> atoms);
-		int* distanceCells(float spacing, float radius, int center, int limit);
+		//int* distanceCells(float spacing, float radius, int center, int limit);
 		//void readTrajectory(char *inputfile, char *topology, float gridspacing, FILE* cavfile, const char *trjfile, FILE* volumefile, FILE* statfile, int mode, int tstat, bool gromos,map<string,map<string,double> > forceFieldRadii, FILE* watersfile, FILE* water_statistics);
 		void start(int argc,char *argv[]);
 		virtual ~AtomReader();
