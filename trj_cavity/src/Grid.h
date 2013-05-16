@@ -77,13 +77,14 @@ class Grid {
 		float getTStartStatisitics();
 		void setDimensionsSearch(int dim);
 		int getDimensionsSearch();
-		void setAxisDependentInfo(int axis, int &ilimit, int &jlimit, int &klimit, int &a, int &b);
-		map<int,float> calculateBottleneckArea(int index,int axis, vector<Coordinates>& tunnel, float &bottleneck, float area, bool sector);
+		void setAxisDependentInfo(int axis, int &ilimit, int &jlimit, int &klimit, float &origin, int &a, int &b);
+		map<int,float> calculateBottleneckArea(int index,int axis, vector<Coordinates>& tunnel, float &bottleneck, float axis_value ,bool sector);
 		map<int, float> getSectorTunnel(int index, int axis, int a, int b, vector<Coordinates>& tunnel, int plane);
 		float getAreaAxis(int* seed, int index, int axis, int a, int b);
 		virtual ~Grid();
 		vector<Atom> getAtoms();
 		void setAtoms(vector<Atom> atoms);
+		//float getAreaAxis(vector<Coordinates> cavity, int axis, float value);
 		//float refineVolume(float x, float y, float z);
 };
 

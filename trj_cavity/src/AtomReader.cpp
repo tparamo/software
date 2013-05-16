@@ -274,6 +274,8 @@ int getSolventCount(vector<Atom> waters, Grid grid, vector<vector<Coordinates> >
 	vector<Coordinates> c;
 	Coordinates coor_sol, coor_stat;
 	set<int> cavity_indexes;
+	map<pair<pair<int,int>,int>,int > looked_up;
+
 
 	int cell_center_x, cell_center_y, cell_center_z = 0;
 
@@ -301,39 +303,41 @@ int getSolventCount(vector<Atom> waters, Grid grid, vector<vector<Coordinates> >
 				if(water_statistics.getTStartStatisitics()<=time){
 
 					int *x_cells, *y_cells, *z_cells, *coor;
-					int x, y, z = 0;
+					int x, y, z, x_stat, y_stat, z_stat = 0;
+
+
+					x_stat = water_statistics.calculatePositionInGrid(coor_sol.getX(),water_statistics.getOriginX());
+					y_stat = water_statistics.calculatePositionInGrid(coor_sol.getY(),water_statistics.getOriginY());
+					z_stat = water_statistics.calculatePositionInGrid(coor_sol.getZ(),water_statistics.getOriginZ());
 
 					//Apply the atom radius
 
 					if((sol.getVdwRadius())*2>spacing){
-						x_cells = grid.getDistanceCells(sol.getVdwRadius(), cell_center_x, grid.getWidth());
-						y_cells = grid.getDistanceCells(sol.getVdwRadius(), cell_center_y, grid.getHeight());
-						z_cells = grid.getDistanceCells(sol.getVdwRadius(), cell_center_z, grid.getDepth());
+						x_cells = grid.getDistanceCells(sol.getVdwRadius(), x_stat, grid.getWidth());
+						y_cells = grid.getDistanceCells(sol.getVdwRadius(), y_stat, grid.getHeight());
+						z_cells = grid.getDistanceCells(sol.getVdwRadius(), z_stat, grid.getDepth());
 					}else{
-						x_cells = new int[2]; x_cells[0] = cell_center_x; x_cells[1] = cell_center_x;
-						y_cells = new int[2]; y_cells[0] = cell_center_y; y_cells[1] = cell_center_y;
-						z_cells = new int[2]; z_cells[0] = cell_center_z; z_cells[1] = cell_center_z;
+						x_cells = new int[2]; x_cells[0] = x_stat; x_cells[1] = x_stat;
+						y_cells = new int[2]; y_cells[0] = y_stat; y_cells[1] = y_stat;
+						z_cells = new int[2]; z_cells[0] = z_stat; z_cells[1] = z_stat;
 					}
 
 					for(x=x_cells[0]; x<=x_cells[1];x++){
 						for(y=y_cells[0]; y<=y_cells[1];y++){
 							for(z=z_cells[0]; z<=z_cells[1];z++){
 
-								int *coor = new int[3]; coor[0] =x; coor[1]=y; coor[2]=z;
-								coor_stat = grid.calculateCoordinateInGrid(coor);
-
-								int x = water_statistics.calculatePositionInGrid(coor_stat.getX(),water_statistics.getOriginX());
-								int y = water_statistics.calculatePositionInGrid(coor_stat.getY(),water_statistics.getOriginY());
-								int z = water_statistics.calculatePositionInGrid(coor_stat.getZ(),water_statistics.getOriginZ());
-
-								if(water_statistics.getWidth()!=0 && (x<water_statistics.getWidth()) && (y>0) && (y<water_statistics.getHeight()) && (z>0) && (z<water_statistics.getDepth())){
-									water_statistics.getGrid()[x][y][z] = water_statistics.getGrid()[x][y][z]+1;
+								if(looked_up.find(make_pair(make_pair(x,y),z))==looked_up.end()){
+									if((x>0) && (x<water_statistics.getWidth()) && (y>0) && (y<water_statistics.getHeight()) && (z>0) && (z<water_statistics.getDepth())){
+										water_statistics.getGrid()[x][y][z] = water_statistics.getGrid()[x][y][z]+1;
+									}
+									looked_up[make_pair(make_pair(x,y),z)]=0;
 								}
 
 								delete [] coor;
 							}
 						}
 					}
+
 					delete[] x_cells;
 					delete[] y_cells;
 					delete[] z_cells;
@@ -569,7 +573,6 @@ int getVolume(Grid grid, t_cavity_options *opt, t_trxframe *fr, vector<Atom> wat
 		}else{
 			grid.calculateBottleneckArea(index, opt->axis, tunnel, bottleneck, opt->area, false);
 		}
-
 
 		if(opt->files.fbottleneck!=NULL) writer.writeBottleneckAreaFrame(bottleneck, fr->time, opt->files.fbottleneck);
 		fprintf(opt->files.log, "Tunnel found. Bottleneck section area %8.3f\n", bottleneck);

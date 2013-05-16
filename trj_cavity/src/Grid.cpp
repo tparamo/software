@@ -763,12 +763,13 @@ vector<int*> Grid::getNeighbours(int* seed, bool rectify, Grid statistics, int i
 	return neighbours;
 }
 
-void Grid::setAxisDependentInfo(int axis, int &ilimit, int &jlimit, int &klimit, int &a, int &b){
+void Grid::setAxisDependentInfo(int axis, int &ilimit, int &jlimit, int &klimit, float &origin, int &a, int &b){
 	if(axis==0){
 		//X axis
 		ilimit = height;
 		jlimit = depth;
 		klimit = width;
+		origin = originX;
 		a = 1;
 		b = 2;
 	}else{
@@ -777,6 +778,7 @@ void Grid::setAxisDependentInfo(int axis, int &ilimit, int &jlimit, int &klimit,
 			ilimit = width;
 			jlimit = depth;
 			klimit = height;
+			origin = originY;
 			a = 0;
 			b = 2;
 		}else{
@@ -784,27 +786,29 @@ void Grid::setAxisDependentInfo(int axis, int &ilimit, int &jlimit, int &klimit,
 			ilimit = width;
 			jlimit = height;
 			klimit = depth;
+			origin = originZ;
 			a = 0;
 			b = 1;
 		}
 	}
 }
 
-map<int,float> Grid::calculateBottleneckArea(int index,int axis, vector<Coordinates>& tunnel, float &bottleneck, float area, bool calculate_sector){
+map<int,float> Grid::calculateBottleneckArea(int index,int axis, vector<Coordinates>& tunnel, float &bottleneck, float axis_value ,bool calculate_sector){
 
 	int i,j,k,a,b;
 	int ilimit, jlimit, klimit;
-	int inspect_grid;
-	int max = 0;
+	float origin;
+	unsigned int size, max = 0;
 
 	map<int, float> sector;
 
 	vector<Coordinates> line;
-	vector<vector<Coordinates> > lines;
+	//vector<vector<Coordinates> > lines;
+	vector<Coordinates> max_line;
 	Coordinates c;
 	int plane = 0;
 
-	setAxisDependentInfo(axis, ilimit, jlimit, klimit, a, b);
+	setAxisDependentInfo(axis, ilimit, jlimit, klimit, origin, a, b);
 
 	for(i=0; i<ilimit; i++){
 		for (j=0; j<jlimit; j++){
@@ -823,10 +827,17 @@ map<int,float> Grid::calculateBottleneckArea(int index,int axis, vector<Coordina
 				}
 			}
 
+			size = line.size();
+
+			if(size>max){
+				max_line.clear();
+				max_line = line;
+				max = size;
+			}
+
 			//If the cavity line gets to the opposite plane it is a tunnel
-			if((k==klimit)  && (int)line.size()>klimit/2){
+			if((k==klimit)  && size>klimit/2){
 				//if(line.size()>max) max = (int)line.size();
-				//lines.push_back(line);
 				tunnel.insert(tunnel.end(), line.begin(), line.end());
 				plane ++;
 			}
@@ -835,20 +846,25 @@ map<int,float> Grid::calculateBottleneckArea(int index,int axis, vector<Coordina
 
 	bottleneck=plane*(spacing*spacing);
 
-	if(area!=NULL){
-		//TODO:axis dependent please!
-		int inspect_grid = this->calculatePositionInGrid(area, originZ);
-
-		for(unsigned l=0; l<tunnel.size();l++){
-			if(tunnel[l].getGridCoordinate()[axis]==inspect_grid) {
-				bottleneck = getAreaAxis(tunnel[l].getGridCoordinate(), index, axis, a, b);
-				break;
-			}
-		}
+	if(!tunnel.size()>0){
+		tunnel = max_line;
 	}
 
-	if(calculate_sector==true && tunnel.size()>0){
-		sector = getSectorTunnel(index,axis,a,b,tunnel,plane);
+	if(tunnel.size()>0){
+		if(axis_value!=NULL){
+			int inspect_grid = this->calculatePositionInGrid(axis_value, origin);
+
+			for(unsigned t=0; t<tunnel.size(); t++){
+				if(tunnel[t].getGridCoordinate()[axis]==inspect_grid) {
+					bottleneck = getAreaAxis(tunnel[t].getGridCoordinate(), index, axis, a, b);
+					break;
+				}
+			}
+		}
+
+		if(calculate_sector==true){
+			sector = getSectorTunnel(index,axis,a,b,tunnel,plane);
+		}
 	}
 
 	return sector;
@@ -940,6 +956,68 @@ map<int, float> Grid::getSectorTunnel(int index, int axis, int a, int b, vector<
 
 	return sector;
 }
+
+/*float Grid::getAreaAxis(vector<Coordinates> cavity, int axis, float value){
+
+	float area = 0;
+
+	if(!cavity.empty() && cavity.size()>0){
+
+		int ilimit, jlimit, klimit, a, b;
+		map<pair<int,int>,int > looked_up;
+		vector<int*> candidates;
+		int* member;
+		int grid_value = 0;
+
+		int index = grid[cavity[0].getGridCoordinate()[0]][cavity[0].getGridCoordinate()[1]][cavity[0].getGridCoordinate()[2]];
+
+		setAxisDependentInfo(axis, ilimit, jlimit, klimit, a, b);
+
+		int inspect_grid = this->calculatePositionInGrid(value, originZ);
+		for(unsigned c=0; c<cavity.size();c++){
+			if(cavity[c].getGridCoordinate()[axis]==inspect_grid) {
+				candidates.push_back(cavity[c].getGridCoordinate());
+				break;
+			}
+		}
+
+		while(candidates.size()>0){
+
+			member = candidates.back();
+			candidates.pop_back();
+			area ++;
+
+			looked_up[make_pair(member[a],member[b])]=0;
+
+			for(int i=-1; i<=1; i++){
+				for(int j=-1; j<=1; j++){
+					if(looked_up.find(make_pair(member[a]+i, member[b]+j))==looked_up.end()){
+						if(axis==0){
+							grid_value = grid[member[0]][member[1]+i][member[2]+j];
+						}else{
+							if(axis==1){
+								grid_value = grid[member[0]+i][member[1]][member[2]+j];
+							}else{
+								grid_value = grid[member[0]+i][member[1]+j][member[2]];
+							}
+						}
+
+						if(grid_value==index){
+							int *c = new int[3];
+							c[a]=member[a]+i; c[b]=member[b]+j; c[axis]=member[axis];
+							candidates.push_back(c);
+							looked_up[make_pair(c[a],c[b])]=0;
+						}
+					}
+				}
+			}
+		}
+	}
+
+	return area*(spacing*spacing);
+
+}*/
+
 
 float Grid::getAreaAxis(int* seed, int index, int axis, int a, int b){
 
