@@ -7,6 +7,7 @@
 
 #include "AtomReader.h"
 #include "AtomWriter.h"
+#include "ForceField.h"
 #include "stdio.h"
 #include "string.h"
 #include "math.h"
@@ -54,6 +55,9 @@ struct t_file_pointers
 	FILE *log; /* log file */
 	t_trxstatus *ftrajectory; /* cavity trajectory file*/
 	t_trxstatus *ftunnel_trajectory; /* tunnel trajectory file*/
+	FILE *fstat; /* cavity statitics */
+	FILE *fsol_stat; /* solvent statistics*/
+	FILE *fsector_stat; /* sector stastitics */
 };
 
 struct t_cavity_params
@@ -94,6 +98,7 @@ struct t_cavity_options
 	bool use_seed;
 	float area; /* Axis value to inspect area*/
 	float cutoff; /* Axis value to inspect area*/
+	bool radius; /* Calculate sector radius instead of area */
 
 	t_file_pointers files; /* file pointers */
 
@@ -176,7 +181,7 @@ Grid AtomReader::initializeGrid(Grid grid, vector<Atom> atoms){
 
 		//Apply the atom radius
 
-		if((atom.getVdwRadius())*2>spacing){
+		if((atom.getVdwRadius())*2.0>spacing){
 			x_cells = grid.getDistanceCells(atom.getVdwRadius(), cell_center_x, grid.getWidth());
 			y_cells = grid.getDistanceCells(atom.getVdwRadius(), cell_center_y, grid.getHeight());
 			z_cells = grid.getDistanceCells(atom.getVdwRadius(), cell_center_z, grid.getDepth());
@@ -265,9 +270,9 @@ void writeTrajectory(t_trxstatus *trjfile, vector<vector<Coordinates> > v, t_trx
 	free(frout.x);
 }
 
-int getSolventCount(vector<Atom> waters, Grid grid, Grid& water_statistics, float frame);
+int getSolventCount(vector<Atom> waters, Grid grid, Grid& water_statistics, bool stat);
 
-int getSolventCount(vector<Atom> waters, Grid grid, vector<vector<Coordinates> > v, Grid& water_statistics, float time){
+int getSolventCount(vector<Atom> waters, Grid grid, vector<vector<Coordinates> > v, Grid& water_statistics, bool stat){
 
 	int solvent_count = 0;
 	Atom sol;
@@ -300,7 +305,7 @@ int getSolventCount(vector<Atom> waters, Grid grid, vector<vector<Coordinates> >
 
 				solvent_count ++;
 
-				if(water_statistics.getTStartStatisitics()<=time){
+				if(stat){
 
 					int *x_cells, *y_cells, *z_cells, *coor;
 					int x, y, z, x_stat, y_stat, z_stat = 0;
@@ -325,15 +330,12 @@ int getSolventCount(vector<Atom> waters, Grid grid, vector<vector<Coordinates> >
 					for(x=x_cells[0]; x<=x_cells[1];x++){
 						for(y=y_cells[0]; y<=y_cells[1];y++){
 							for(z=z_cells[0]; z<=z_cells[1];z++){
-
 								if(looked_up.find(make_pair(make_pair(x,y),z))==looked_up.end()){
 									if((x>0) && (x<water_statistics.getWidth()) && (y>0) && (y<water_statistics.getHeight()) && (z>0) && (z<water_statistics.getDepth())){
 										water_statistics.getGrid()[x][y][z] = water_statistics.getGrid()[x][y][z]+1;
 									}
 									looked_up[make_pair(make_pair(x,y),z)]=0;
 								}
-
-								delete [] coor;
 							}
 						}
 					}
@@ -529,13 +531,17 @@ int getVolume(Grid grid, t_cavity_options *opt, t_trxframe *fr, vector<Atom> wat
 	}
 
 	if(opt->sol){
-		int water_count = getSolventCount(waters, grid, v, opt->params.water_statistics, fr->time);
+		bool stat = false;
+		if(opt->files.fsol_stat!=NULL && fr->time>= opt->params.statistics.getTStartStatisitics()) stat = true;
+		int water_count = getSolventCount(waters, grid, v, opt->params.water_statistics, stat);
 		if(opt->files.fsolcount!=NULL) writer.writeSolventFrame(water_count,opt->spacing, fr->time, opt->files.fsolcount);
 	}
 
 	if(fr->time >= opt->params.statistics.getTStartStatisitics()){
-		fprintf(opt->files.log, "Calculating statistics... \n");
-		updateStatistics(v, opt->params.statistics);
+		if(opt->files.fstat!=NULL || opt->rectify){
+			fprintf(opt->files.log, "Calculating statistics... \n");
+			updateStatistics(v, opt->params.statistics);
+		}
 		opt->params.frame_stat = opt->params.frame_stat + 1;
 	}
 
@@ -567,11 +573,11 @@ int getVolume(Grid grid, t_cavity_options *opt, t_trxframe *fr, vector<Atom> wat
 		vector<Coordinates> tunnel;
 		float bottleneck = 0.0;
 
-		if(fr->time>opt->t_stat){
-			map<int, float> sector = grid.calculateBottleneckArea(index, opt->axis, tunnel, bottleneck, opt->area, true);
+		if(opt->files.fsector_stat!=NULL  && fr->time>opt->t_stat){
+			map<int, float> sector = grid.calculateBottleneckArea(index, opt->axis, tunnel, bottleneck, opt->area, true, opt->radius);
 			updateTunnelSection(sector, opt->params.acc_sector);
 		}else{
-			grid.calculateBottleneckArea(index, opt->axis, tunnel, bottleneck, opt->area, false);
+			grid.calculateBottleneckArea(index, opt->axis, tunnel, bottleneck, opt->area, false, opt->radius);
 		}
 
 		if(opt->files.fbottleneck!=NULL) writer.writeBottleneckAreaFrame(bottleneck, fr->time, opt->files.fbottleneck);
@@ -740,25 +746,46 @@ int analyze_frame(t_topology * top, t_trxframe * fr, t_pbc * pbc, int nr, gmx_an
 
 /* I calculate the radii form the parameters of the force field (contained in tpr file)*/
 
-void calculateRadius(t_topology * top, atom_id * selection, int selection_size, float * radii);
+void calculateRadius(t_cavity_options opt,t_topology * top, atom_id * selection, int selection_size, float * radii);
 
-void calculateRadius(t_topology * top, atom_id * selection, int selection_size, float * radii){
+void calculateRadius(t_cavity_options opt,t_topology * top, atom_id * selection, int selection_size, float * radii){
 	int i, itype;
 	double c12, c6, sig6;
 	int ntype = top->idef.atnr;
 
 	for(i=0; i<selection_size; i++) {
-		printf("Atom %d name %s",i, top->atoms.atomname[selection[i]][0]);
 		itype = top->atoms.atom[selection[i]].type;
 		c12   = top->idef.iparams[itype*ntype+itype].lj.c12;
 		c6    = top->idef.iparams[itype*ntype+itype].lj.c6;
 		if ((c6 != 0) && (c12 != 0)) {
 			sig6 = c12/c6;
 			radii[i]= (0.5*pow(sig6,1.0/6.0))*10;  /* Factor of 10 for nm -> Angstroms */
-			//printf(" radius %f\n",radii[i]);
 		}else{
 			//printf("no LJ parameters\n");
 			radii[i]=0.0;
+		}
+		fprintf(opt.files.log,"Atom %d name %s radii %f\n",i, top->atoms.atomname[selection[i]][0],radii[i]);
+	}
+}
+
+void calculateRadiusNoTPR(t_cavity_options opt,t_topology * top, atom_id * selection, int selection_size, float * radii);
+
+void calculateRadiusNoTPR(t_cavity_options opt,t_topology * top, atom_id * selection, int selection_size, float * radii){
+
+	ForceField ff("amber99sb");
+	map<string,map<string,double> > forceFieldRadii;
+	forceFieldRadii = ff.getForceFieldRadii();
+	int i = 0;
+
+	for(i=0; i<selection_size; i++) {
+		//printf("Atom %d name %s",i, top->atoms.atomname[selection[i]][0]);
+		if(forceFieldRadii.find(top->atoms.resinfo[top->atoms.atom[selection[i]].resind].name[0])!=forceFieldRadii.end()){
+			radii[i]=forceFieldRadii[top->atoms.resinfo[top->atoms.atom[selection[i]].resind].name[0]][top->atoms.atomname[selection[i]][0]];
+			fprintf(opt.files.log, "Residue %s Atom %d name %s radii %f\n",top->atoms.resinfo[top->atoms.atom[selection[i]].resind].name[0], i, top->atoms.atomname[selection[i]][0],radii[i]);
+		}else{
+			Atom aux(top->atoms.atomname[selection[i]][0][0], Coordinates(0.0,0.0,0.0));
+			radii[i]=aux.getVdwRadius();
+			fprintf(opt.files.log,"Residue %s not found, using default values. Atom %d name %s radii %f\n",top->atoms.resinfo[top->atoms.atom[selection[i]].resind].name[0],i, top->atoms.atomname[selection[i]][0],aux.getVdwRadius());
 		}
 	}
 }
@@ -782,6 +809,7 @@ void AtomReader::start(int argc,char *argv[]){
 
 	const char *mode[4]={NULL, "all","max", NULL};
 	const char *orientation[5]={NULL, "z","x","y", NULL};
+	const char *sector[4]={NULL, "area","radius", NULL};
 
 	t_filenm fnm[] = {
 			{ efTRX, NULL, NULL, ffOPTRD },
@@ -811,8 +839,9 @@ void AtomReader::start(int argc,char *argv[]){
 			{ "-axis", FALSE , etENUM, { orientation },  "Orientation of the protein for tunnel calculation"},
 			{ "-ca", NULL, etBOOL, {&opt.ca},  "Only cavities enclosed in the backbone"},
 			{ "-seed", FALSE, etRVEC,{&opt.seed}, "Coordinates of the seed point"},
-			{ "-area", FALSE, etREAL ,{&opt.area}, "Axis value to be inspected"},
-			{ "-cutoff", FALSE, etREAL ,{&opt.cutoff}, "Cut-off (test)"}
+			{ "-axis_value", FALSE, etREAL ,{&opt.area}, "Axis value to be inspected"},
+			{ "-cutoff", FALSE, etREAL ,{&opt.cutoff}, "Cut-off"},
+			{ "-sector", FALSE , etENUM, { sector },  "Calculate sector area or radius"},
 	};
 
 	opt.dim = 5;
@@ -827,17 +856,19 @@ void AtomReader::start(int argc,char *argv[]){
 	opt.axis = 2;
 	opt.area = NULL;
 	opt.cutoff = 0;
-
-	opt.params.min_size = 0;
-	opt.params.tunnel_size = 0;
-	opt.params.frame_stat = 0;
-	opt.params.frame = 0;
 	opt.rectify = false;
 	opt.ff_radius = false;
 	opt.sol = false;
 	opt.ca = false;
 	opt.tunnel = false;
 	opt.use_seed = false;
+	opt.radius = false;
+
+	opt.params.min_size = 0;
+	opt.params.tunnel_size = 0;
+	opt.params.frame_stat = 0;
+	opt.params.frame = 0;
+
 
 	opt.files.fcavity = NULL;
 	opt.files.ftrajectory = NULL;
@@ -846,6 +877,9 @@ void AtomReader::start(int argc,char *argv[]){
 	opt.files.ftunnel = NULL;
 	opt.files.fbottleneck = NULL;
 	opt.files.ftunnel_trajectory = NULL;
+	opt.files.fstat = NULL;
+	opt.files.fsol_stat = NULL;
+	opt.files.fsector_stat = NULL;
 
 	#define NFILE asize(fnm)
 	#define NPA asize(pa)
@@ -867,9 +901,12 @@ void AtomReader::start(int argc,char *argv[]){
 	tmp_fnm            = ftp2fn_null(efNDX, NFILE, fnm);
 	trj->ndxfile         = tmp_fnm ? strdup(tmp_fnm) : NULL;
 
+	/* Get enum data */
+
 	if(nenum(mode)>1) opt.mode = 0;
 	int axis = nenum(orientation);
 	if(axis>2) opt.axis = axis-2;
+	if(nenum(sector)>1) opt.radius = true;
 
 	/* If no trajectory file is given, we need to set some flags to be able
 	 * to prepare a frame from the loaded topology information. Also, check
@@ -941,17 +978,24 @@ void AtomReader::start(int argc,char *argv[]){
 	}
 
 	/* Get force field radii */
-	if(opt.ff_radius==true){
-		if(ftp2bSet(efTPR,NFILE,fnm)){
+	if(opt2parg_bSet("-ff_radius",NPA,pa)){
+		opt.ff_radius = true;
+		if(strstr(trj->topfile,".tpr") != NULL){
 			snew(opt.params.radii,opt.params.isize);
-			calculateRadius(trj->top, opt.params.index, opt.params.isize, opt.params.radii);
+			calculateRadius(opt,trj->top, opt.params.index, opt.params.isize, opt.params.radii);
 			if(opt.sol==true){
 				snew(opt.params.sol_radii,opt.params.sol_isize);
-				calculateRadius(trj->top, opt.params.sol_index, opt.params.sol_isize, opt.params.sol_radii);
+				calculateRadius(opt,trj->top, opt.params.sol_index, opt.params.sol_isize, opt.params.sol_radii);
 			}
 		}else{
-			opt.ff_radius = false;
-			printf("Option -ff_radius requires a .tpr file for the -s option\n" );
+			//opt.ff_radius = false;
+			snew(opt.params.radii,opt.params.isize);
+			calculateRadiusNoTPR(opt,trj->top, opt.params.index, opt.params.isize, opt.params.radii);
+			if(opt.sol==true){
+				//TODO:need to check solvent. FF in make?
+				snew(opt.params.sol_radii,opt.params.sol_isize);
+				calculateRadiusNoTPR(opt,trj->top, opt.params.sol_index, opt.params.sol_isize, opt.params.sol_radii);
+			}
 		}
 	}
 
@@ -969,6 +1013,28 @@ void AtomReader::start(int argc,char *argv[]){
 	if(opt2fn_null("-oba",NFILE,fnm)) opt.files.fbottleneck =xvgropen(opt2fn("-oba", NFILE, fnm), "Min. tunnel section area", "Time [ps]", "Area [angstroms\\S2\\N]", oenv);
 	if(opt2fn_null("-ob",NFILE,fnm) || opt2fn_null("-obt",NFILE,fnm)) opt.files.ftunnel =ffopen(opt2fn("-ob", NFILE, fnm),"w");
 
+	/* Statistics files */
+	if(opt2fn_null("-ostat",NFILE,fnm)) opt.files.fstat = ffopen(opt2fn("-ostat", NFILE, fnm),"w");
+	if(opt2fn_null("-osstat",NFILE,fnm)) opt.files.fsol_stat = ffopen(opt2fn("-osstat", NFILE, fnm),"w");;
+	if(opt2fn_null("-obs",NFILE,fnm)){
+		const char *leyend;
+		if(opt.axis==0){
+			leyend="X [angstroms]";
+		}else{
+			if(opt.axis==1){
+				leyend="Y [angstroms]";
+			}else{
+				leyend="Z [angstroms]";
+			}
+		}
+
+		if(opt.radius==false){
+			opt.files.fsector_stat = xvgropen(opt2fn("-obs", NFILE, fnm), "Tunnel section area", leyend, "Area [angstroms\\S2\\N]", oenv);
+		}else{
+			opt.files.fsector_stat = xvgropen(opt2fn("-obs", NFILE, fnm), "Tunnel section radius", leyend , "Radius [angstroms]", oenv);
+		}
+	}
+
 	/* Do the actual analysis*/
 
 	gmx_ana_do(trj, 0, &analyze_frame, &opt);
@@ -980,45 +1046,30 @@ void AtomReader::start(int argc,char *argv[]){
 	}
 
 	if (trj->trjfile){
-		if(opt2fn_null("-ostat",NFILE,fnm)){
+		if(opt.files.fstat!=NULL){
 			fprintf(opt.files.log, "Statistics calculated for the last %d frames\n", opt.params.frame_stat);
 			fflush(opt.files.log);
-			FILE* fstatistics = ffopen(opt2fn("-ostat", NFILE, fnm),"w");
-			writer.writeStatistics(opt.params.statistics, opt.spacing, opt.params.frame_stat ,fstatistics);
-			if(opt2fn_null("-ot",NFILE,fnm)) close_trx(opt.files.ftrajectory);
+			writer.writeStatistics(opt.params.statistics, opt.spacing, opt.params.frame_stat ,opt.files.fstat);
 		}
-		if(opt2fn_null("-obt",NFILE,fnm)) close_trx(opt.files.ftunnel_trajectory);
+		if(opt.files.ftrajectory!=NULL) close_trx(opt.files.ftrajectory);
+		if(opt.files.ftunnel_trajectory!=NULL) close_trx(opt.files.ftunnel_trajectory);
 	}
 
 	if(opt.sol == true){
-		if (trj->trjfile && opt2fn_null("-osstat",NFILE,fnm)){
-			FILE* fwater_statistics = ffopen(opt2fn("-osstat", NFILE, fnm),"w");
-			writer.writeStatistics(opt.params.water_statistics, opt.spacing, opt.params.frame_stat ,fwater_statistics);
+		if (trj->trjfile && opt.files.fsol_stat !=NULL){
+			writer.writeStatistics(opt.params.water_statistics, opt.spacing, opt.params.frame_stat ,opt.files.fsol_stat);
 		}
-		if(opt2fn_null("-os",NFILE,fnm)) fclose(opt.files.fsolcount);
+		if(opt.files.fsolcount!=NULL) fclose(opt.files.fsolcount);
 	}
 
 	fclose(opt.files.fvolume);
 	fclose(opt.files.log);
 
 	if(opt.tunnel == true){
-		if(opt2fn_null("-obs",NFILE,fnm)){
-			const char *leyend;
-			if(opt.axis==0){
-				leyend="X [angstroms]";
-			}else{
-				if(opt.axis==1){
-					leyend="Y [angstroms]";
-				}else{
-					leyend="Z [angstroms]";
-				}
-			}
-
-			FILE* fsection =xvgropen(opt2fn("-obs", NFILE, fnm), "Tunnel section area", leyend, "Area [angstroms\\S2\\N]", oenv);
-			writer.writeSectionAreaFrame(opt.params.acc_sector, opt.params.frame_stat, fsection);
-			fclose(fsection);
+		if(opt.files.fsector_stat!=NULL){
+			writer.writeSectionAreaFrame(opt.params.acc_sector, opt.params.frame_stat, opt.files.fsector_stat);
 		}
-		if(opt2fn_null("-oba",NFILE,fnm)) fclose(opt.files.fbottleneck);
+		if(opt.files.fbottleneck) fclose(opt.files.fbottleneck);
 	}
 
 	/* Free memory */

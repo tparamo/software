@@ -12,7 +12,7 @@ SOURCE =	src/
 
 LIBS =		-lm -pthread -ldl
 
-USRLIBS =	$(SOURCE)Atom.cpp $(SOURCE)AtomReader.cpp $(SOURCE)AtomWriter.cpp $(SOURCE)Coordinates.cpp $(SOURCE)Grid.cpp
+USRLIBS =	$(SOURCE)Atom.cpp $(SOURCE)AtomReader.cpp $(SOURCE)AtomWriter.cpp $(SOURCE)Coordinates.cpp $(SOURCE)Grid.cpp $(SOURCE)ForceField.cpp
 
 
 $(TARGET):	$(OBJS)

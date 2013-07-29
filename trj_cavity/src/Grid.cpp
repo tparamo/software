@@ -11,6 +11,8 @@
 
 #include "AtomWriter.h"
 
+#define Pi 3.1416
+
 using namespace std;
 
 Grid::Grid() {
@@ -167,6 +169,7 @@ vector<vector<Coordinates> > Grid::getCavitySeedPoint(Coordinates seed, Grid sta
 	if((x>0 && x<width) && (y>0 && y<height) && (z>0 && z<depth)){
 		if(grid[x][y][z]==0){
 			cavity = getCavity(x,y,z, rectify, statistics, -1);
+			max_cavity_index=-1;
 			if(cavity.size()>1){
 				cavities.push_back(cavity);
 			}else{
@@ -439,7 +442,7 @@ bool Grid::isInsideCavityNew(int x, int y, int z, int pos, int index){
 		}
 
 		if(sx==false){
-			if(x_pos_2>0 && x_neg_2>0){
+			if((x_pos_2>0 && x_neg_2>0) || (x_pos>0 && x_neg_2>0) || (x_pos_2>0 && x_neg>0)){
 				boxed_result_2 = boxed_result_2 + 2;
 			}else{
 				if(odd==true && (x_pos_2>0 || x_neg_2>0)){
@@ -450,7 +453,7 @@ bool Grid::isInsideCavityNew(int x, int y, int z, int pos, int index){
 		}
 
 		if(sy==false){
-			if(y_pos_2>0 && y_neg_2>0){
+			if((y_pos_2>0 && y_neg_2>0) || (y_pos>0 && y_neg_2>0) || (y_pos_2>0 && y_neg>0)){
 				boxed_result_2 = boxed_result_2 + 2;
 			}else{
 				if(odd==true && (y_pos_2>0 || y_neg_2>0)){
@@ -461,7 +464,7 @@ bool Grid::isInsideCavityNew(int x, int y, int z, int pos, int index){
 		}
 
 		if(sz==false){
-			if(z_pos_2>0 && z_neg_2>0){
+			if((z_pos_2>0 && z_neg_2>0) || (z_pos>0 && z_neg_2>0) || (z_pos_2>0 && z_neg>0)){
 				boxed_result_2 = boxed_result_2 + 2;
 			}else{
 				if(odd==true && (z_pos_2>0 || z_neg_2>0)){
@@ -716,7 +719,7 @@ void Grid::getNeighbourCandidate(int x, int y, int z, vector<int*>& neighbours, 
 						int* n1 = new int[3];
 						n1[0] = x; n1[1] = y; n1[2] = z;
 						neighbours.push_back(n1);
-						statistics.getGrid()[x][y][z] = statistics.getGrid()[x][y][z]+1;
+						//statistics.getGrid()[x][y][z] = statistics.getGrid()[x][y][z]+1;
 						grid[x][y][z]=index;
 					}
 				}
@@ -793,7 +796,7 @@ void Grid::setAxisDependentInfo(int axis, int &ilimit, int &jlimit, int &klimit,
 	}
 }
 
-map<int,float> Grid::calculateBottleneckArea(int index,int axis, vector<Coordinates>& tunnel, float &bottleneck, float axis_value ,bool calculate_sector){
+map<int,float> Grid::calculateBottleneckArea(int index,int axis, vector<Coordinates>& tunnel, float &bottleneck, float axis_value ,bool calculate_sector, bool radius){
 
 	int i,j,k,a,b;
 	int ilimit, jlimit, klimit;
@@ -807,6 +810,7 @@ map<int,float> Grid::calculateBottleneckArea(int index,int axis, vector<Coordina
 	vector<Coordinates> max_line;
 	Coordinates c;
 	int plane = 0;
+	float round_value = 0;
 
 	setAxisDependentInfo(axis, ilimit, jlimit, klimit, origin, a, b);
 
@@ -851,36 +855,51 @@ map<int,float> Grid::calculateBottleneckArea(int index,int axis, vector<Coordina
 	}
 
 	if(tunnel.size()>0){
-		if(axis_value!=NULL){
+
+		sector = getSectorTunnel(index,axis,a,b,tunnel,bottleneck, radius, axis_value);
+
+		/*if(axis_value!=NULL){
+
 			int inspect_grid = this->calculatePositionInGrid(axis_value, origin);
 
-			for(unsigned t=0; t<tunnel.size(); t++){
-				if(tunnel[t].getGridCoordinate()[axis]==inspect_grid) {
-					bottleneck = getAreaAxis(tunnel[t].getGridCoordinate(), index, axis, a, b);
-					break;
-				}
+			if(axis_value<0){
+				round_value = (int)(inspect_grid-0.5);
+			}else{
+				round_value = (int)(inspect_grid+0.5);
 			}
-		}
 
-		if(calculate_sector==true){
-			sector = getSectorTunnel(index,axis,a,b,tunnel,plane);
-		}
+			int cont = 0;
+			while(sector[round_value+cont]==0.0){
+				cont++;
+			}
+			bottleneck = sector[round_value+cont];
+
+			//for(unsigned t=0; t<tunnel.size(); t++){
+			//	if(tunnel[t].getGridCoordinate()[axis]==inspect_grid) {
+			//		bottleneck = getAreaAxis(tunnel[t].getGridCoordinate(), index, axis, a, b);
+			//		break;
+			//	}
+			//}
+		}*/
 	}
 
 	return sector;
 }
 
-map<int, float> Grid::getSectorTunnel(int index, int axis, int a, int b, vector<Coordinates>& tunnel, int plane){
+map<int, float> Grid::getSectorTunnel(int index, int axis, int a, int b, vector<Coordinates>& tunnel, float &bottleneck, bool radius, float inspect_axis){
 
 	vector<Coordinates> tunnel_extension;
 	map<pair<int,int>,int > looked_up;
 	map<int, float> sector;
 	vector<int*> candidates;
 	Coordinates coordinates;
+	float refined_area;
+	float botleneck_candidate = 0.0;
 
-	int sector_acc,protrusion, erase, grid_value, round_value;
+	int grid_value, round_value;
 	int *member;
 	float axis_value;
+	float bottleneck_round=0.0;
 
 	for(unsigned l=0; l<tunnel.size(); l++){
 
@@ -892,7 +911,115 @@ map<int, float> Grid::getSectorTunnel(int index, int axis, int a, int b, vector<
 			round_value = (int)(axis_value+0.5);
 		}
 
+
 		if(sector.find(round_value)==sector.end()){
+
+			refined_area = 0.0;
+
+			while(!candidates.empty()){ delete candidates.back(); candidates.pop_back();}
+			if(looked_up.size()>0) looked_up.clear();
+			if(tunnel_extension.size()>0) tunnel_extension.clear();
+
+			candidates.push_back(tunnel[l].getGridCoordinate());
+
+			while(candidates.size()>0){
+
+				member = candidates.back();
+				candidates.pop_back();
+
+				looked_up[make_pair(member[a],member[b])]=0;
+
+				for(int i=-1; i<=1; i++){
+					for(int j=-1; j<=1; j++){
+						if(looked_up.find(make_pair(member[a]+i, member[b]+j))==looked_up.end()){
+							if(axis==0){
+								grid_value = grid[member[0]][member[1]+i][member[2]+j];
+							}else{
+								if(axis==1){
+									grid_value = grid[member[0]+i][member[1]][member[2]+j];
+								}else{
+									grid_value = grid[member[0]+i][member[1]+j][member[2]];
+								}
+							}
+
+							if(grid_value==index){
+								int *c = new int[3];
+								c[a]=member[a]+i; c[b]=member[b]+j; c[axis]=member[axis];
+								candidates.push_back(c);
+								looked_up[make_pair(c[a],c[b])]=0;
+
+							}
+						}
+					}
+				}
+				coordinates = calculateCoordinateInGrid(member);
+				tunnel_extension.push_back(coordinates);
+				refined_area = refined_area + refineArea(coordinates.getX(), coordinates.getY(), coordinates.getZ(), axis);
+			}
+
+			if(!radius){
+				sector[round_value] = refined_area;
+			}else{
+				sector[round_value] = sqrt(refined_area/Pi);
+			}
+
+			if(inspect_axis!=NULL){
+				if(axis_value<0){
+					bottleneck_round = (int)(inspect_axis-0.5);
+					if((botleneck_candidate==0.0 && (round_value<=(bottleneck_round+1) && round_value>=(bottleneck_round-1))) || ((botleneck_candidate>sector[round_value]) && (round_value<=(bottleneck_round+1) && round_value>=(bottleneck_round-1)))){
+						botleneck_candidate = sector[round_value];
+					}
+				}else{
+					bottleneck_round = (int)(inspect_axis+0.5);
+					if((botleneck_candidate==0.0 && (round_value>=(bottleneck_round+1) && round_value<=(bottleneck_round-1))) || ((botleneck_candidate>sector[round_value]) && (round_value>=(bottleneck_round+1) && round_value<=(bottleneck_round-1)))){
+						botleneck_candidate = sector[round_value];
+					}
+				}
+			}else{
+				if(botleneck_candidate==0.0|| botleneck_candidate>sector[round_value]){
+					botleneck_candidate = sector[round_value];
+				}
+			}
+			tunnel.insert(tunnel.end(), tunnel_extension.begin(), tunnel_extension.end());
+		}
+	}
+
+	bottleneck = botleneck_candidate;
+
+	return sector;
+}
+
+/*map<int, float> Grid::getSectorTunnel(int index, int axis, int a, int b, vector<Coordinates>& tunnel, int plane, bool radius){
+
+	vector<Coordinates> tunnel_extension;
+	map<pair<int,int>,int > looked_up;
+	map<int, float> sector;
+	vector<int*> candidates;
+	Coordinates coordinates;
+	float radius_value, refined_area;
+
+	int sector_acc, grid_value, round_value;
+	int *member;
+	float axis_value;
+	//set<int> diam1, diam2;
+	//int protrusion, erase,;
+
+	for(unsigned l=0; l<tunnel.size(); l++){
+
+		axis_value = tunnel[l].getCoordinate(axis);
+		//I round it to int, it makes it easier to compare keys
+		if(axis_value<0){
+			round_value = (int)(axis_value-0.5);
+		}else{
+			round_value = (int)(axis_value+0.5);
+		}
+
+		//diam1.clear();
+		//diam2.clear();
+
+		if(sector.find(round_value)==sector.end()){
+
+			refined_area = 0.0;
 
 			while(!candidates.empty()){ delete candidates.back(); candidates.pop_back();}
 			if(looked_up.size()>0) looked_up.clear();
@@ -908,8 +1035,11 @@ map<int, float> Grid::getSectorTunnel(int index, int axis, int a, int b, vector<
 				candidates.pop_back();
 
 				looked_up[make_pair(member[a],member[b])]=0;
-				protrusion =0;
-				erase = candidates.size();
+				//diam1.insert(member[a]);
+				//diam2.insert(member[b]);
+				//protrusion =0;
+				//erase = candidates.size();
+
 
 				//I get a list of candidates that I don't consider a protrusion (to extend the bottleneck tunnel that already exists)
 				for(int i=-1; i<=1; i++){
@@ -930,32 +1060,47 @@ map<int, float> Grid::getSectorTunnel(int index, int axis, int a, int b, vector<
 								c[a]=member[a]+i; c[b]=member[b]+j; c[axis]=member[axis];
 								candidates.push_back(c);
 								looked_up[make_pair(c[a],c[b])]=0;
-								protrusion++;
+								//diam1.insert(member[a]+i);
+								//diam2.insert(member[b]+j);
+								//protrusion++;
 							}
-						}else{
-							protrusion++;
-						}
+						}//else{
+							//protrusion++;
+						//}
 					}
 				}
 
-				if(protrusion>8){ //square-like section only (for radius calculation)
-					sector_acc ++;
-					coordinates = calculateCoordinateInGrid(member);
-					tunnel_extension.push_back(coordinates);
-				}else{
-					candidates.erase(candidates.begin()+erase,candidates.end());
-				}
+				sector_acc ++;
+				coordinates = calculateCoordinateInGrid(member);
+				tunnel_extension.push_back(coordinates);
+				refined_area = refined_area + refineArea(coordinates.getX(), coordinates.getY(), coordinates.getZ(), axis);
+
+				//Probaly to delete
+				//if(protrusion>8){ //square-like section only (for radius calculation)
+				//	sector_acc ++;
+				//	coordinates = calculateCoordinateInGrid(member);
+				//	tunnel_extension.push_back(coordinates);
+				//}else{
+				//	candidates.erase(candidates.begin()+erase,candidates.end());
+				//}
 			}
 
-			if(sector_acc<plane) sector_acc =plane;
-			sector[round_value] = sector_acc*(spacing*spacing);
+			if(!radius){
+				//if(sector_acc<plane) sector_acc =plane;
+				//sector_acc*(spacing*spacing);
+				sector[round_value] = refined_area ;
+			}else{
+				//radius_value = min(diam1.size(),diam2.size())/2.0;
+				//sector[round_value] = radius_value;
+				sector[round_value] = sqrt(refined_area/3.1416);
+			}
 
 			tunnel.insert(tunnel.end(), tunnel_extension.begin(), tunnel_extension.end());
 		}
 	}
 
 	return sector;
-}
+}*/
 
 /*float Grid::getAreaAxis(vector<Coordinates> cavity, int axis, float value){
 
@@ -1019,7 +1164,7 @@ map<int, float> Grid::getSectorTunnel(int index, int axis, int a, int b, vector<
 }*/
 
 
-float Grid::getAreaAxis(int* seed, int index, int axis, int a, int b){
+/*float Grid::getAreaAxis(int* seed, int index, int axis, int a, int b){
 
 	float bottleneck = 0;
 	int grid_value = 0;
@@ -1063,6 +1208,104 @@ float Grid::getAreaAxis(int* seed, int index, int axis, int a, int b){
 	}
 
 	return bottleneck*(spacing*spacing);
+}*/
+
+float Grid::refineArea(float xf, float yf, float zf, int axis){
+
+	int x = calculatePositionInGrid(xf, originX);
+	int y = calculatePositionInGrid(yf, originY);
+	int z = calculatePositionInGrid(zf, originZ);
+
+	float x_length = spacing;
+	float y_length = spacing;
+	float z_length = spacing;
+
+	float vdw, container, result = 0.0;
+
+	if(grid[x][y][z]<0){
+		if(axis!=0){
+			if(x-1>0 && grid[x-1][y][z]>0){
+				vdw = atoms[grid[x-1][y][z]-1].getVdwRadius();
+				container = xf - (atoms[grid[x-1][y][z]-1].getCoordinates().getX()+vdw);
+				x_length = x_length + container;
+			}
+			if(x+1<width && grid[x+1][y][z]>0){
+				vdw = atoms[grid[x+1][y][z]-1].getVdwRadius();
+				container = ((atoms[grid[x+1][y][z]-1].getCoordinates().getX()-vdw)-spacing) - xf;
+				x_length = x_length + container;
+			}
+		}
+		if(axis!=1){
+			if(y-1>0 && grid[x][y-1][z]>0){
+				vdw = atoms[grid[x][y-1][z]-1].getVdwRadius();
+				container = yf - (atoms[grid[x][y-1][z]-1].getCoordinates().getY()+vdw);
+				y_length = y_length + container;
+			}
+			if(y+1<height && grid[x][y+1][z]>0){
+				vdw = atoms[grid[x][y+1][z]-1].getVdwRadius();
+				container = ((atoms[grid[x][y+1][z]-1].getCoordinates().getY()-vdw)-spacing) - yf;
+				y_length = y_length + container;
+			}
+		}
+
+		/*if(x_length==spacing && y_length==spacing){
+			if(x-1>0 && y-1>0 && grid[x-1][y-1][z]>0){
+				vdw = atoms[grid[x-1][y-1][z]-1].getVdwRadius();
+				container = xf - (atoms[grid[x-1][y-1][z]-1].getCoordinates().getX()+vdw);
+				x_length = x_length + container;
+				container = yf - (atoms[grid[x-1][y-1][z]-1].getCoordinates().getY()+vdw);
+				y_length = y_length + container;
+			}
+			if(x-1>0 && y+1<height && grid[x-1][y+1][z]>0){
+				vdw = atoms[grid[x-1][y+1][z]-1].getVdwRadius();
+				container = xf - (atoms[grid[x-1][y+1][z]-1].getCoordinates().getX()+vdw);
+				x_length = x_length + container;
+				container = ((atoms[grid[x-1][y+1][z]-1].getCoordinates().getY()-vdw)-spacing) - yf;
+				y_length = y_length + container;
+			}
+			if(x+1<width && y-1>0 && grid[x+1][y-1][z]>0){
+				vdw = atoms[grid[x+1][y-1][z]-1].getVdwRadius();
+				container = ((atoms[grid[x+1][y-1][z]-1].getCoordinates().getX()-vdw)-spacing) - xf;
+				x_length = x_length + container;
+				container = yf - (atoms[grid[x+1][y-1][z]-1].getCoordinates().getY()+vdw);
+				y_length = y_length + container;
+			}
+			if(x+1<width && y+1<height && grid[x+1][y+1][z]>0){
+				vdw = atoms[grid[x+1][y+1][z]-1].getVdwRadius();
+				container = ((atoms[grid[x+1][y+1][z]-1].getCoordinates().getX()-vdw)-spacing) - xf;
+				x_length = x_length + container;
+				container = ((atoms[grid[x+1][y+1][z]-1].getCoordinates().getY()-vdw)-spacing) - yf;
+				y_length = y_length + container;
+			}
+		}*/
+
+		if(axis!=2){
+			if(z-1>0 && grid[x][y][z-1]>0){
+				vdw = atoms[grid[x][y][z-1]-1].getVdwRadius();
+				container = zf - (atoms[grid[x][y][z-1]-1].getCoordinates().getZ()+vdw);
+				z_length = z_length + container;
+			}
+			if(z+1<depth && grid[x][y][z+1]>0){
+				vdw = atoms[grid[x][y][z+1]-1].getVdwRadius();
+				container = ((atoms[grid[x][y][z+1]-1].getCoordinates().getZ()-vdw)-spacing) - zf;
+				z_length = z_length + container;
+			}
+		}
+	}
+
+	switch(axis){
+		case 0:
+			result = y_length * z_length;
+			break;
+		case 1:
+			result = x_length * z_length;
+			break;
+		case 2:
+			result = x_length * y_length;
+			break;
+	}
+
+	return result;
 }
 
 /*float Grid::refineVolume(float xf, float yf, float zf){
@@ -1072,45 +1315,45 @@ float Grid::getAreaAxis(int* seed, int index, int axis, int a, int b){
 	int z = calculatePositionInGrid(zf, originZ);
 	float vdw;
 	float result, container;
-	float x_lenght = spacing;
-	float y_lenght = spacing;
-	float z_lenght = spacing;
+	float x_length = spacing;
+	float y_length = spacing;
+	float z_length = spacing;
 
 
 	if(grid[x][y][z]<0){
 		if(x-1>0 && grid[x-1][y][z]>0){
 			vdw = atoms[grid[x-1][y][z]-1].getVdwRadius();
 			container = xf - (atoms[grid[x-1][y][z]-1].getCoordinates().getX()+vdw);
-			x_lenght = x_lenght + container;
+			x_length = x_length + container;
 		}
 		if(x+1<width && grid[x+1][y][z]>0){
 			vdw = atoms[grid[x+1][y][z]-1].getVdwRadius();
 			container = ((atoms[grid[x+1][y][z]-1].getCoordinates().getX()-vdw)-spacing) - xf;
-			x_lenght = x_lenght + container;
+			x_length = x_length + container;
 		}
 		if(y-1>0 && grid[x][y-1][z]>0){
 			vdw = atoms[grid[x][y-1][z]-1].getVdwRadius();
 			container = yf - (atoms[grid[x][y-1][z]-1].getCoordinates().getY()+vdw);
-			y_lenght = y_lenght + container;
+			y_length = y_length + container;
 		}
 		if(y+1<height && grid[x][y+1][z]>0){
 			vdw = atoms[grid[x][y+1][z]-1].getVdwRadius();
 			container = ((atoms[grid[x][y+1][z]-1].getCoordinates().getY()-vdw)-spacing) - yf;
-			y_lenght = y_lenght + container;
+			y_length = y_length + container;
 		}
 		if(z-1>0 && grid[x][y][z-1]>0){
 			vdw = atoms[grid[x][y][z-1]-1].getVdwRadius();
 			container = zf - (atoms[grid[x][y][z-1]-1].getCoordinates().getZ()+vdw);
-			z_lenght = z_lenght + container;
+			z_length = z_length + container;
 		}
 		if(z+1<depth && grid[x][y][z+1]>0){
 			vdw = atoms[grid[x][y][z+1]-1].getVdwRadius();
 			container = ((atoms[grid[x][y][z+1]-1].getCoordinates().getZ()-vdw)-spacing) - zf;
-			z_lenght = z_lenght + container;
+			z_length = z_length + container;
 		}
 	}
 
-	result = x_lenght * y_lenght * z_lenght;
+	result = x_length * y_length * z_length;
 
 	return result;
 }*/

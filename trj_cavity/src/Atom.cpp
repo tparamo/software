@@ -12,6 +12,7 @@
 #include <math.h>
 #include "stdio.h"
 #include <sstream>
+#include "AtomRadii.h"
 
 using namespace std;
 
@@ -33,16 +34,18 @@ Atom::Atom(char name, Coordinates coordinates, float radius) {
 }
 
 void Atom::setDefaultVdWRadius(char name){
-	if(name == 'H') vdwRadius = 0.40; //wiki raius -> vdwRadius = 1.20;
-	else if(name == 'N') vdwRadius = 1.55; // gromacs default radius-> vdwRadius = 1.10;
-	else if(name == 'C') vdwRadius = 1.70; // gromacs default radius-> vdwRadius = 1.50;
-	else if(name == 'O') vdwRadius = 1.52; // gromacs default radius-> vdwRadius = 1.05;
-	else if(name == 'S') vdwRadius = 1.80; // gromacs default radius->vdwRadius = 1.60;
-	else if(name == 'P') vdwRadius = 1.80; // gromacs default radius->vdwRadius = 1.20;
-	else if(name == 'K') vdwRadius = 2.75; // K ions
-	else if(name == '1') vdwRadius = 2.27; // NA ions
-	else if(name == '2') vdwRadius = 1.75; // CL ions
-	else vdwRadius = 1.20;
+	switch(name){
+		case 'H' : vdwRadius = H; break;
+		case 'N' : vdwRadius = N; break;
+		case 'C' : vdwRadius = C; break;
+		case 'O' : vdwRadius = O; break;
+		case 'S' : vdwRadius = S; break;
+		case 'P' : vdwRadius = P; break;
+		case 'K' : vdwRadius = K; break;
+		case '1' : vdwRadius = Na; break;
+		case '2' : vdwRadius = Cl; break;
+		default: vdwRadius = 1.20;
+	}
 }
 
 float Atom::getVdwRadius(){

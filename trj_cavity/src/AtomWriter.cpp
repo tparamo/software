@@ -250,6 +250,7 @@ void AtomWriter::writeSectionAreaFrame(map<int,pair<vector<float>, float> > sect
 	}
 
 	fflush(file);
+	fclose(file);
 }
 
 AtomWriter::~AtomWriter() {
