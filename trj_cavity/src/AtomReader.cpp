@@ -5,21 +5,14 @@
  *      Author: tp334
  */
 
-#include "AtomReader.h"
-#include "AtomWriter.h"
-#include "ForceField.h"
-#include "stdio.h"
-#include "string.h"
-#include "math.h"
-#include <string>
-#include "ctype.h"
-#include <stdlib.h>
+#include "../include/AtomReader.h"
+#include "../include/AtomWriter.h"
+#include "../include/ForceField.h"
 
 //Gromacs libraries
 #include "xtcio.h"
 #include <sstream>
 #include "trajana.h"
-
 #include "statutil.h"
 #include "typedefs.h"
 #include "smalloc.h"
@@ -33,6 +26,7 @@
 #include "pbc.h"
 #include "vec.h"
 #include "xvgr.h"
+#include "pdb2top.h"
 
 using namespace std;
 
@@ -695,6 +689,7 @@ int analyze_frame(t_topology * top, t_trxframe * fr, t_pbc * pbc, int nr, gmx_an
 		Grid grid(opt->spacing, limits[0], limits[3], limits[1], limits[4], limits[2], limits[5], opt->cutoff);
 		grid.setDimensionsSearch(opt->dim);
 		grid.setAtoms(selection);
+		if(opt->tunnel) grid.setTunnel(true);
 
 		if(opt->params.frame == 0){
 			Grid stat(opt->spacing, limits[0], limits[3], limits[1], limits[4], limits[2], limits[5], opt->cutoff);
@@ -759,7 +754,8 @@ void calculateRadius(t_cavity_options opt,t_topology * top, atom_id * selection,
 		c6    = top->idef.iparams[itype*ntype+itype].lj.c6;
 		if ((c6 != 0) && (c12 != 0)) {
 			sig6 = c12/c6;
-			radii[i]= (0.5*pow(sig6,1.0/6.0))*10;  /* Factor of 10 for nm -> Angstroms */
+			//radii[i]= (0.5*pow(sig6,1.0/6.0))*10;  /* Factor of 10 for nm -> Angstroms */
+			radii[i]=0.5*pow(sig6,1.0/6.0)*pow(2.0,(1.0/6.0))*10;
 		}else{
 			//printf("no LJ parameters\n");
 			radii[i]=0.0;
@@ -768,11 +764,11 @@ void calculateRadius(t_cavity_options opt,t_topology * top, atom_id * selection,
 	}
 }
 
-void calculateRadiusNoTPR(t_cavity_options opt,t_topology * top, atom_id * selection, int selection_size, float * radii);
+void calculateRadiusNoTPR(t_cavity_options opt,t_topology * top, atom_id * selection, int selection_size, float * radii, const char *ff_path);
 
-void calculateRadiusNoTPR(t_cavity_options opt,t_topology * top, atom_id * selection, int selection_size, float * radii){
+void calculateRadiusNoTPR(t_cavity_options opt,t_topology * top, atom_id * selection, int selection_size, float * radii, const char *ff_path){
 
-	ForceField ff("amber99sb");
+	ForceField ff(ff_path);
 	map<string,map<string,double> > forceFieldRadii;
 	forceFieldRadii = ff.getForceFieldRadii();
 	int i = 0;
@@ -810,6 +806,7 @@ void AtomReader::start(int argc,char *argv[]){
 	const char *mode[4]={NULL, "all","max", NULL};
 	const char *orientation[5]={NULL, "z","x","y", NULL};
 	const char *sector[4]={NULL, "area","radius", NULL};
+	const char *ff = "";
 
 	t_filenm fnm[] = {
 			{ efTRX, NULL, NULL, ffOPTRD },
@@ -829,19 +826,20 @@ void AtomReader::start(int argc,char *argv[]){
 
 	t_pargs pa[] = {
 			{ "-skip", NULL, etINT, { &opt.skip }, "Only write every nr-th frame" },
+			{ "-dim", NULL, etINT, { &opt.dim }, "Number of dimension surrounding by protein (max 6)" },
+			{ "-spacing", NULL, etREAL, {&opt.spacing},  "Grid spacing (angstroms)"},
 			{ "-mode", FALSE , etENUM, { mode }, "Cavities to output: " },
-			{ "-min", NULL, etREAL, { &opt.min }, "Min. size of cavities (A^3)" },
-			{ "-dim", NULL, etINT, { &opt.dim }, "Number of dimension to be surrounded by protein" },
-			{ "-spacing", NULL, etREAL, {&opt.spacing},  "Grid spacing"},
-			{ "-tstat", NULL, etINT, {&opt.t_stat},  "Time (ps) to start the calculation of statistics"},
-			{ "-rectify", NULL, etBOOL, {&opt.rectify},  "Rectify output based on statistics"},
-			{ "-ff_radius", NULL, etBOOL, {&opt.ff_radius},  "Use force field radii (only using tpr topology)"},
-			{ "-axis", FALSE , etENUM, { orientation },  "Orientation of the protein for tunnel calculation"},
-			{ "-ca", NULL, etBOOL, {&opt.ca},  "Only cavities enclosed in the backbone"},
-			{ "-seed", FALSE, etRVEC,{&opt.seed}, "Coordinates of the seed point"},
-			{ "-axis_value", FALSE, etREAL ,{&opt.area}, "Axis value to be inspected"},
-			{ "-cutoff", FALSE, etREAL ,{&opt.cutoff}, "Cut-off"},
-			{ "-sector", FALSE , etENUM, { sector },  "Calculate sector area or radius"},
+			{ "-cutoff", FALSE, etREAL ,{&opt.cutoff}, "Searcg distance cut-off (angstroms)"},
+			{ "-min", NULL, etREAL, { &opt.min }, "Minimun size of cavities (cubic angstroms)" },
+			{ "-seed", FALSE, etRVEC,{&opt.seed}, "Coordinates of the seed point (angstroms)"},
+			//{ "-tstat", NULL, etINT, {&opt.t_stat},  "Time (ps) to start the calculation of statistics"},
+			//{ "-rectify", NULL, etBOOL, {&opt.rectify},  "Rectify output based on statistics"},
+			{ "-ff_radius", NULL, etBOOL, {&opt.ff_radius},  "Use force field vdW radius. Can be calculated from a topology tpr file, or directly from the force field (provided as -ff_path)"},
+			{ "-ff_path", NULL, etSTR, {&ff},  "Path to force field folder"},
+			{ "-axis", FALSE , etENUM, { orientation },  "Direction along which to calculate tunnnel: "},
+			//{ "-ca", NULL, etBOOL, {&opt.ca},  "Only cavities enclosed in the backbone"},
+			{ "-axis_value", FALSE, etREAL ,{&opt.area}, "Output tunnel cross-section at a defined axis value (angstroms)along tunnel axis"},
+			{ "-sector", FALSE , etENUM, { sector },  "Calculate sector as : "},
 	};
 
 	opt.dim = 5;
@@ -857,7 +855,7 @@ void AtomReader::start(int argc,char *argv[]){
 	opt.area = NULL;
 	opt.cutoff = 0;
 	opt.rectify = false;
-	opt.ff_radius = false;
+	opt.ff_radius = false;;
 	opt.sol = false;
 	opt.ca = false;
 	opt.tunnel = false;
@@ -973,14 +971,11 @@ void AtomReader::start(int argc,char *argv[]){
 		opt.use_seed = true;
 	}
 
-	if(opt2fn_null("-ob",NFILE,fnm) || opt2fn_null("-obt",NFILE,fnm) || opt2fn_null("-oba",NFILE,fnm) || opt2fn_null("-obs",NFILE,fnm)){
-		opt.tunnel = true;
-	}
-
 	/* Get force field radii */
 	if(opt2parg_bSet("-ff_radius",NPA,pa)){
 		opt.ff_radius = true;
-		if(strstr(trj->topfile,".tpr") != NULL){
+		if(strstr(trj->topfile,".tpr") != NULL && strcmp(ff,"")==0){
+			printf("WARNING:  No force field file provided, the radii set will be calculated from the tpr file parameters. \n");
 			snew(opt.params.radii,opt.params.isize);
 			calculateRadius(opt,trj->top, opt.params.index, opt.params.isize, opt.params.radii);
 			if(opt.sol==true){
@@ -988,18 +983,22 @@ void AtomReader::start(int argc,char *argv[]){
 				calculateRadius(opt,trj->top, opt.params.sol_index, opt.params.sol_isize, opt.params.sol_radii);
 			}
 		}else{
-			//opt.ff_radius = false;
-			snew(opt.params.radii,opt.params.isize);
-			calculateRadiusNoTPR(opt,trj->top, opt.params.index, opt.params.isize, opt.params.radii);
-			if(opt.sol==true){
-				//TODO:need to check solvent. FF in make?
-				snew(opt.params.sol_radii,opt.params.sol_isize);
-				calculateRadiusNoTPR(opt,trj->top, opt.params.sol_index, opt.params.sol_isize, opt.params.sol_radii);
+			if(strcmp(ff,"")==0 || fopen(ff,"r")==NULL){
+				printf("WARNING:  Force field entered: %s: Neither a valid force field or tpr file provided , the default radii set will be used. \n", ff);
+				opt.ff_radius = false;
+			}else{
+				snew(opt.params.radii,opt.params.isize);
+				calculateRadiusNoTPR(opt,trj->top, opt.params.index, opt.params.isize, opt.params.radii, ff);
+				if(opt.sol==true){
+					//TODO:need to check solvent. FF in make?
+					snew(opt.params.sol_radii,opt.params.sol_isize);
+					calculateRadiusNoTPR(opt,trj->top, opt.params.sol_index, opt.params.sol_isize, opt.params.sol_radii, ff);
+				}
 			}
 		}
 	}
 
-	/* Min number of grids of cavity */
+	/* Min number of grid voxels per cavity */
 	opt.min = (int)((opt.min)/(opt.spacing*opt.spacing*opt.spacing) + 0.5);
 
 	/* Open output files: default files */
@@ -1009,8 +1008,16 @@ void AtomReader::start(int argc,char *argv[]){
 
 	/* Open output files: optional files */
 
+	if(opt2fn_null("-ob",NFILE,fnm) || opt2fn_null("-obt",NFILE,fnm) || opt2fn_null("-oba",NFILE,fnm) || opt2fn_null("-obs",NFILE,fnm)){
+		opt.tunnel = true;
+	}
+
 	if(opt2fn_null("-os",NFILE,fnm)) opt.files.fsolcount =xvgropen(opt2fn("-os", NFILE, fnm), "Solvent Atoms", "Time [ps]", "Solvent atoms", oenv);
-	if(opt2fn_null("-oba",NFILE,fnm)) opt.files.fbottleneck =xvgropen(opt2fn("-oba", NFILE, fnm), "Min. tunnel section area", "Time [ps]", "Area [angstroms\\S2\\N]", oenv);
+	if(opt.radius==false){
+		if(opt2fn_null("-oba",NFILE,fnm)) opt.files.fbottleneck =xvgropen(opt2fn("-oba", NFILE, fnm), "Min. tunnel section area", "Time [ps]", "Area [angstroms\\S2\\N]", oenv);
+	}else{
+		if(opt2fn_null("-oba",NFILE,fnm)) opt.files.fbottleneck =xvgropen(opt2fn("-oba", NFILE, fnm), "Min. tunnel section area", "Time [ps]", "Radius [angstroms]", oenv);
+	}
 	if(opt2fn_null("-ob",NFILE,fnm) || opt2fn_null("-obt",NFILE,fnm)) opt.files.ftunnel =ffopen(opt2fn("-ob", NFILE, fnm),"w");
 
 	/* Statistics files */
@@ -1037,6 +1044,7 @@ void AtomReader::start(int argc,char *argv[]){
 
 	/* Do the actual analysis*/
 
+	Atom::initialize(argv[0]);
 	gmx_ana_do(trj, 0, &analyze_frame, &opt);
 
 	/* summary results and close files */

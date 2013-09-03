@@ -5,11 +5,10 @@
  *      Author: tp334
  */
 
-#include "Grid.h"
-#include "math.h"
-#include <iostream>
+#include "../include/Grid.h"
+#include "../include/AtomWriter.h"
 
-#include "AtomWriter.h"
+#include <iostream>
 
 #define Pi 3.1416
 
@@ -40,6 +39,8 @@ Grid::Grid(float spacingGrid,float x_max, float x_min, float y_max, float y_min,
 		int max_final = max(max_aux, depth);
 		this->cutoff = (max_final)/2;
 	}
+
+	tunnel = false;
 
 	initializeGrid();
 }
@@ -77,14 +78,8 @@ void Grid::initializeGrid(){
 	}
 }
 
-/*TODO: does this 7 make sense? Does the C-alpha thing make sense? */
+/*TODO: Does the C-alpha thing make sense anymore? */
 void Grid::setCAplhaLimits(float x_max, float x_min, float y_max, float y_min, float z_max, float z_min){
-	/*ca_limits[0] = calculatePositionInGrid(x_min + 7, originX);
-	ca_limits[1] = calculatePositionInGrid(x_max - 7, originX);
-	ca_limits[2] = calculatePositionInGrid(y_min + 7, originY);
-	ca_limits[3] = calculatePositionInGrid(y_max - 7, originY);
-	ca_limits[4] = calculatePositionInGrid(z_min + 7, originZ);
-	ca_limits[5] = calculatePositionInGrid(z_max - 7, originZ);*/
 	ca_limits[0] = calculatePositionInGrid(x_min + 1*spacing, originX);
 	ca_limits[1] = calculatePositionInGrid(x_max - 1*spacing, originX);
 	ca_limits[2] = calculatePositionInGrid(y_min + 1*spacing, originY);
@@ -314,7 +309,7 @@ vector<Coordinates> Grid::getCavity(int x, int y , int z, bool rectify, Grid sta
 	return cavity;
 }
 
-vector<int*> Grid::getCandidatesToSeedPoint(int x, int y , int z, float cutoff){
+/*vector<int*> Grid::getCandidatesToSeedPoint(int x, int y , int z, float cutoff){
 	Coordinates c;
 	vector<int*> candidates;
 
@@ -345,9 +340,9 @@ vector<int*> Grid::getCandidatesToSeedPoint(int x, int y , int z, float cutoff){
 	}
 
 	return candidates;
-}
+}*/
 
-bool Grid::isInsideCavity(int x, int y, int z){
+/*bool Grid::isInsideCavity(int x, int y, int z){
 	bool result = false;
 
 	int max_aux = max((ca_limits[1]-ca_limits[0]), (ca_limits[3]-ca_limits[2]));
@@ -367,15 +362,119 @@ bool Grid::isInsideCavity(int x, int y, int z){
 	}
 
 	return result;
-}
+}*/
 
 //delete?
-int Grid::surroundedBy(int x, int y, int z, int element, int pos){
+/*int Grid::surroundedBy(int x, int y, int z, int element, int pos){
 
 	return surroundedByX(x,y,z,element,pos) + surroundedByY(x,y,z,element,pos) + surroundedByZ(x,y,z,element,pos);
+}*/
+
+bool Grid::isInsideCavity(int x, int y, int z, int pos, int index, bool tunnel){
+	bool result = false;
+
+	int x_pos = surroundedByXPositive(x,y,z,1,pos);
+	int x_neg = surroundedByXNegative(x,y,z,1,pos);
+	int y_pos = surroundedByYPositive(x,y,z,1,pos);
+	int y_neg = surroundedByYNegative(x,y,z,1,pos);
+	int z_pos = surroundedByZPositive(x,y,z,1,pos);
+	int z_neg = surroundedByZNegative(x,y,z,1,pos);
+
+	int dimensions = 0;
+
+	if(!tunnel){
+		dimensions = this->getDimensions(x_pos, x_neg, y_pos, y_neg, z_pos, z_neg);
+	}else{
+		dimensions = this->getDimensionsTunnel(x_pos, x_neg, y_pos, y_neg, z_pos, z_neg);
+	}
+
+	if(dimensions>=this->dimensionsSearch){
+		result = true;
+	}else{
+		result = doRefill(x,y,z,pos, index);
+	}
+
+	return result;
 }
 
-bool Grid::isInsideCavityNew(int x, int y, int z, int pos, int index){
+int Grid::getDimensions(int x_pos, int x_neg, int y_pos, int y_neg, int z_pos, int z_neg){
+	int dimensions = 0;
+
+	if (x_pos>0) dimensions ++;
+	if (x_neg>0) dimensions ++;
+	if (y_pos>0) dimensions ++;
+	if (y_neg>0) dimensions ++;
+	if (z_pos>0) dimensions ++;
+	if (z_neg>0) dimensions ++;
+
+	return dimensions;
+}
+
+int Grid::getDimensionsTunnel(int x_pos, int x_neg, int y_pos, int y_neg, int z_pos, int z_neg){
+	int dimensions = 0;
+
+	bool odd = false;
+
+	if (dimensionsSearch%2==1){
+		odd=true;
+	}
+
+	if(x_pos>0 && x_neg>0){
+		dimensions = dimensions + 2;
+	}else{
+		if(odd==true && (x_pos>0 || x_neg>0)){
+			dimensions = dimensions + 1;
+			odd = false;
+		}
+	}
+
+	if(y_pos>0 && y_neg>0){
+		dimensions = dimensions + 2;
+	}else{
+		if(odd==true && (y_pos>0 || y_neg>0)){
+			dimensions = dimensions + 1;
+			odd = false;
+		}
+	}
+
+	if(z_pos>0 && z_neg>0){
+		dimensions = dimensions + 2;
+	}else{
+		if(odd==true && (z_pos>0 || z_neg>0)){
+			dimensions = dimensions + 1;
+			odd = false;
+		}
+	}
+
+	return dimensions;
+}
+
+bool Grid::doRefill(int x, int y, int z, int pos, int index){
+
+	bool result = false;
+
+	int x_pos = surroundedByXPositive(x,y,z,index,pos);
+	int x_neg = surroundedByXNegative(x,y,z,index,pos);
+	int y_pos = surroundedByYPositive(x,y,z,index,pos);
+	int y_neg = surroundedByYNegative(x,y,z,index,pos);
+	int z_pos = surroundedByZPositive(x,y,z,index,pos);
+	int z_neg = surroundedByZNegative(x,y,z,index,pos);
+
+	int count = 0;
+
+	if (x_pos>0 && x_pos<=3) count++;
+	if (x_neg>0 && x_neg<=3) count++;
+	if (y_pos>0 && y_pos<=3) count++;
+	if (y_neg>0 && y_neg<=3) count++;
+	if (z_pos>0 && z_pos<=3) count++;
+	if (z_neg>0 && z_neg<=3) count++;
+
+	if(count>=4) result = true;
+
+	return result;
+}
+
+/*bool Grid::isInsideCavityNew(int x, int y, int z, int pos, int index){
 
 	bool result = false;
 
@@ -477,11 +576,21 @@ bool Grid::isInsideCavityNew(int x, int y, int z, int pos, int index){
 
 		if(boxed_result_2+boxed_result>=dimensionsSearch){
 			result = true;
+		}else{
+			//refill
+			int count = 0;
+			if (x_pos_2>0 && x_pos_2<=3) count++;
+			if (x_neg_2>0 && x_neg_2<=3) count++;
+			if (y_pos_2>0 && y_pos_2<=3) count++;
+			if (y_neg_2>0 && y_neg_2<=3) count++;
+			if (z_pos_2>0 && z_pos_2<=3) count++;
+			if (z_neg_2>0 && z_neg_2<=3) count++;
+			if(count>=4) result = true;
 		}
 	}
 
 	return result;
-}
+}*/
 
 int Grid::surroundedByX(int x, int y, int z, int element, int pos){
 
@@ -715,7 +824,7 @@ void Grid::getNeighbourCandidate(int x, int y, int z, vector<int*>& neighbours, 
 			if((x>0) && (x<statistics.getWidth()) && (y>0) && (y<statistics.getHeight()) && (z>0) && (z<statistics.getDepth())){
 				float percent = (float)statistics.getGrid()[x][y][z]/50.0;
 				if(percent>0.1){
-					if(isInsideCavityNew(x,y,z,cutoff,index)){
+					if(isInsideCavity(x,y,z,cutoff,index,this->tunnel)){
 						int* n1 = new int[3];
 						n1[0] = x; n1[1] = y; n1[2] = z;
 						neighbours.push_back(n1);
@@ -725,7 +834,7 @@ void Grid::getNeighbourCandidate(int x, int y, int z, vector<int*>& neighbours, 
 				}
 			}
 		}else{
-			if(isInsideCavityNew(x,y,z,cutoff,index)){
+			if(isInsideCavity(x,y,z,cutoff,index, this->tunnel)){
 				int* n1 = new int[3];
 				n1[0] = x; n1[1] = y; n1[2] = z;
 				neighbours.push_back(n1);
@@ -1426,5 +1535,12 @@ void Grid::setAtoms(vector<Atom> atoms){
     this->atoms = atoms;
 }
 
+void Grid::setTunnel(bool tunnel){
+	this->tunnel = tunnel;
+}
+
+bool Grid::getTunnel(){
+	return this->tunnel;
+}
 Grid::~Grid() {
 }

@@ -5,12 +5,9 @@
  *      Author: tp334
  */
 
-#include "AtomWriter.h"
-#include "stdio.h"
-#include <string>
-#include <sstream>
-#include <iostream>
-#include "math.h"
+#include "../include/AtomWriter.h"
+#include <stdio.h>
+
 
 AtomWriter::AtomWriter() {
 	// TODO Auto-generated constructor stub
@@ -41,7 +38,6 @@ void AtomWriter::writePDB(vector<vector<Coordinates> > cavities, FILE* file){
 }
 
 void AtomWriter::writeStatistics(Grid statistics, float gridspacing, int nframes, FILE* file){
-	stringstream ss;
 	int* position = new int[3];
 
 	//float volume[9] = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
@@ -94,13 +90,13 @@ void AtomWriter::writeVolumeProbability(float volume[]){
 		fprintf(file,"%8.3f,%8.3f\n", volume[i], (i+1)*0.1);
 	}
 
-	fclose(file);*/
+	fclose(file);
 
 
 	for(int i=0; i<9; i++){
 		stringstream ss;
 		ss<<"Volume with probability >="<<(i+1)*0.1<<" :"<<volume[i]<<" A3";
-	}
+	}*/
 }
 
 void AtomWriter::writeVolumeFrame(int gridpoints, float spacing, float time, FILE* file){
@@ -116,7 +112,7 @@ void AtomWriter::writeExactVolumeFrame(vector<Coordinates> cavity, Grid& grid, f
 		//acc = acc + grid.refineVolume(cavity[i].getX(), cavity[i].getY(), cavity[i].getZ());
 	}
 
-	fprintf(file,"%8.3f, %8.3f\n",  time, acc);
+	fprintf(file,"%8.3f %8.3f\n",  time, acc);
 	fflush(file);
 }
 
@@ -208,9 +204,9 @@ void AtomWriter::writeVolumeAllFrames(map<float, vector<int> > volume_cavities, 
 
 	for(it=volume_cavities.begin(); it!=volume_cavities.end();++it){
 		cavities = it->second;
-		fprintf(file,"%10.3f ", it->first, voxel_vol*cavities[0]);
+		fprintf(file,"%10.3f %8.3f ", it->first, voxel_vol*cavities[0]);
 		for(int i=0; i<max; i++){
-			if(i<cavities.size()){
+			if(i<(int)cavities.size()){
 				fprintf(file,"%8.3f ", voxel_vol*cavities[i]);
 			}else{
 				fprintf(file,"%8.3f ", 0.0);

@@ -5,19 +5,56 @@
  *      Author: tp334
  */
 
-#include "Atom.h"
-#include <iostream>
-#include <cstdlib>
-#include <cstring>
-#include <math.h>
+
+#include "../include/Atom.h"
+
 #include "stdio.h"
-#include <sstream>
-#include "AtomRadii.h"
+#include <cstring>
+#include "cstdlib"
+
 
 using namespace std;
 
-Atom::Atom(){
+float Atom::H;
+float Atom::N;
+float Atom::C;
+float Atom::S;
+float Atom::P;
+float Atom::O;
+float Atom::K;
+float Atom::Na;
+float Atom::Cl;
 
+Atom::Atom(){
+}
+
+void Atom::initialize(char *path){
+
+	char *pch = strrchr(path,'/');
+	strncpy (pch,"/AtomRadii.txt",14);
+
+	FILE* file = fopen(path,"r");
+	if(!file){
+		printf("File AtomRadii.txt not found!\n");
+	    exit(1);
+	}else{
+		char atom[2];
+		float radius;
+		char line[10];
+		while (fgets(line, sizeof(line), file)) {
+			sscanf(line,"%s %f", atom, &radius);
+			if(strstr(atom,"H")) {H=radius;}
+			if(strstr(atom,"C")) {C=radius;}
+			if(strstr(atom,"N")) {N=radius;}
+			if(strstr(atom,"S")) {S=radius;}
+			if(strstr(atom,"P")) {P=radius;}
+			if(strstr(atom,"O")) {O=radius;}
+			if(strstr(atom,"K")) {K=radius;}
+			if(strstr(atom,"Na")) {Na=radius;}
+			if(strstr(atom,"Cl")) {Cl=radius;}
+		}
+		fclose(file);
+	}
 }
 
 Atom::Atom(char name, Coordinates coordinates) {

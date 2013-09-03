@@ -5,13 +5,14 @@
  *      Author: tp334
  */
 
-#include "ForceField.h"
+#include "../include/ForceField.h"
+
 #include <iostream>
 #include <cstdlib>
 #include <cstring>
 #include <math.h>
 #include "stdio.h"
-#include "AtomRadii.h"
+
 
 using namespace std;
 
@@ -25,7 +26,7 @@ ForceField::ForceField(string forcefield) {
 }
 
 void ForceField::setForceFieldPath(string forcefield){
-	this->forceFieldPath =  FFDirectory;
+	this->forceFieldPath =  forcefield;
 }
 
 string ForceField::getForceFieldPath(){
@@ -95,6 +96,9 @@ void ForceField::setForceFieldRadii(){
 		}
 
 		fclose(aa_file);
+	}else{
+		printf("File %s not found", aa.c_str());
+		exit(1);
 	}
 }
 
@@ -144,7 +148,8 @@ map<string, double> ForceField::calculateRadii(){
 
 							if(radii.find(name)==radii.end()){
 								if(sigma){
-									radii[name] = (0.5*c6)*10;
+									//radii[name] = (0.5*c6)*10;
+									radii[name] = (0.5*(pow(2.0,(1.0/6.0))*c6))*10;
 								}else{
 									float sig6 = c12/c6;
 									radii[name]= (0.5*pow(sig6,1.0/6.0))*10;
@@ -156,6 +161,9 @@ map<string, double> ForceField::calculateRadii(){
 			}
 		}
 		fclose(nb_file);
+	}else{
+		printf("File %s not found", ffnonbonded.c_str());
+		exit(1);
 	}
 
 	return radii;

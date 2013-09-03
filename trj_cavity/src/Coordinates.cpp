@@ -5,7 +5,7 @@
  *      Author: tp334
  */
 
-#include "Coordinates.h"
+#include "../include/Coordinates.h"
 
 Coordinates::Coordinates() {
 	// TODO Auto-generated constructor stub
