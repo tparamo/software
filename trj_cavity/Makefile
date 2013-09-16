@@ -4,9 +4,11 @@ OBJS =		trj_cavity.o
 
 TARGET =	trj_cavity
 
-CFLAGS =	-Wall -I/home/tp334/software/gromacs-4.5.3/include/gromacs -g -O1 -B/usr/bin
+GROMACS =	/home/tp334/software/gromacs-4.5.3
 
-LDFLAGS=	-L/home/tp334/software/gromacs-4.5.3/lib -lgmx
+CFLAGS =	-Wall -I$(GROMACS)/include/gromacs -g -O1 -B/usr/bin
+
+LDFLAGS=	-L$(GROMACS)/lib -lgmx
 
 SOURCE =	src/
 
