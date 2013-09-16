@@ -1,7 +1,8 @@
 //////////////////////////////
 Pre-requisite
 //////////////////////////////
-trj_cavity depends on GROMACS, therefore GROMACS (any version) should be previously installed in your computer. You can download it from:
+trj_cavity depends on GROMACS, therefore GROMACS (any version) must be previously installed in your computer. 
+You can download it from:
 
 http://www.gromacs.org/Downloads
 
@@ -13,7 +14,8 @@ INSTALLATION INSTRUCTIONS :
 
 LDFLAGS: argument -L needs the path to the folder where the library libgmx is located (libgmx.a/libgmx.so)
 
-CFLAGS: argument -I needs the path to the folder where libgmx libary headers are (.h files); tipically located in a include/gromacs folder
+CFLAGS: argument -I needs the path to the folder where libgmx libary headers are (.h files); tipically located in 
+a include/gromacs folder
 
 2. Compile it.
 
@@ -27,11 +29,11 @@ If you get the error:
 
 "error while loading shared libraries: libgmx.so: cannot open shared object file: No such file or directory"
 
-Is because the system doesn't know where libgmx is. Then you will need to update LD_LIBRARY_PATH:
+It is because the system doesn't know where libgmx is. Then you will need to update LD_LIBRARY_PATH:
 
 For example: 
 bash: export LD_LIBRARY_PATH="$LD_LIBRARY_PATH:/home/mary/software/gromacs-4.6.3/build/src/gmxlib"
-tcsh: stenenv LD_LIBRARY_PATH ${LD_LIBRARY_PATH}:/home/mary/software/gromacs-4.6.3/build/src/gmxlib
+tcsh: setenv LD_LIBRARY_PATH ${LD_LIBRARY_PATH}:/home/mary/software/gromacs-4.6.3/build/src/gmxlib
 
 Now it should work!
 
