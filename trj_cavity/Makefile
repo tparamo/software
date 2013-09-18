@@ -9,8 +9,12 @@ TARGET =	trj_cavity
 #CFLAGS =	-Wall -I/home/mary/software/gromacs-4.5.3/include/gromacs -g -O1 -B/usr/bin
 
 #Version 4.6.x
-LDFLAGS=	-L/home/mary/software/gromacs-4.6.3/build/src/gmxlib -lgmx
-CFLAGS =	-Wall -I/mary/tp334/software/gromacs-4.6.3/build/include/gromacs -g -O1 -B/usr/bin -w
+#LDFLAGS=	-L/home/mary/software/gromacs-4.6.3/build/src/gmxlib -lgmx
+#CFLAGS =	-Wall -I/mary/tp334/software/gromacs-4.6.3/build/include/gromacs -g -O1 -B/usr/bin -w
+
+#Universal
+LDFLAGS=	-L$(GMXLDLIB) -lgmx
+CFLAGS =	-Wall -w -I$(GMXLDLIB)/../include/gromacs -g -O1 -B/usr/bin
 
 SOURCE =	src/
 
@@ -21,6 +25,7 @@ USRLIBS =	$(SOURCE)Atom.cpp $(SOURCE)AtomReader.cpp $(SOURCE)AtomWriter.cpp $(SO
 
 $(TARGET):	$(OBJS)
 	$(CC) $(USRLIBS) -o $(TARGET) $(OBJS) $(CFLAGS) $(LIBS) $(LDFLAGS) 
+	
 	
 
 all:	$(TARGET)
