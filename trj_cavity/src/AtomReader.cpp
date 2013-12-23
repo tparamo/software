@@ -357,8 +357,10 @@ int updateStatistics(vector<vector<Coordinates> > v, Grid& statistics){
 			int z = statistics.calculatePositionInGrid(c[j].getZ(),statistics.getOriginZ());
 
 			if(statistics.getWidth()!=0 && (x<statistics.getWidth()) && (y>0) && (y<statistics.getHeight()) && (z>0) && (z<statistics.getDepth())){
-				statistics.getGrid()[x][y][z] = statistics.getGrid()[x][y][z]+1;
+				statistics.getGrid()[x][y][z] = 1; //statistics.getGrid()[x][y][z]+1;
 			}
+
+
 		}
 	}
 	return 0;
@@ -793,14 +795,17 @@ void AtomReader::start(int argc,char *argv[]){
 	const char *tmp_fnm;
 	AtomWriter writer;
 
-	opt.files.log = ffopen("log.txt", "w");
-	for(int i=0;i<argc;i++) fprintf(opt.files.log, "%s ", argv[i]);
-	fprintf(opt.files.log, "\n");
-
 	char **grpname; /* the name of each group */
 
 	const char *desc[] = {
-		"This is an analysis program that implements cavity volume calculation",
+		"trj_cavity detects and characterizes protein cavities within MD simulation trajectories.",
+		"This grid-based calculation will depend in the degree of buriedness required for the cavities, which is controlled by the parameter dim: \n\n "
+		"-dim 6 represents cavities covered by protein atoms in 6/6 voxel directions (completely buried cavities).\n "
+		"-dim 5 are cavities covered by protein atoms in 5/6 voxel directions (pockets)\n "
+		"-dim 4 are cavities covered by protein atoms in 4/6 voxel directions (pockets, tunnels)\n "
+		"-dim 3 are cavities covered by protein atoms in 3/6 voxel directions (surface grooves)\n "
+		"-dim 2 are cavities covered by protein atoms in 2/6 voxel directions (surface grooves)\n "
+		"\n\n"
 	};
 
 	const char *mode[4]={NULL, "all","max", NULL};
@@ -826,7 +831,7 @@ void AtomReader::start(int argc,char *argv[]){
 
 	t_pargs pa[] = {
 			{ "-skip", NULL, etINT, { &opt.skip }, "Only write every nr-th frame" },
-			{ "-dim", NULL, etINT, { &opt.dim }, "Number of dimension surrounding by protein (max 6)" },
+			{ "-dim", NULL, etINT, { &opt.dim }, "Number of dimension surrounding by protein (min 2, max 6)" },
 			{ "-spacing", NULL, etREAL, {&opt.spacing},  "Grid spacing (angstroms)"},
 			{ "-mode", FALSE , etENUM, { mode }, "Cavities to output: " },
 			{ "-cutoff", FALSE, etREAL ,{&opt.cutoff}, "Searcg distance cut-off (angstroms)"},
@@ -886,8 +891,12 @@ void AtomReader::start(int argc,char *argv[]){
 	gmx_ana_traj_create(&trj, FLAGS);
 	gmx_ana_set_nrefgrps(trj, 1);
 
+	CopyRight(stderr,argv[0]);
 	parse_common_args(&argc,argv,PCA_CAN_TIME | PCA_BE_NICE, NFILE ,fnm,asize(pa),pa,asize(desc),desc,0,NULL, &oenv);
 	trj->oenv = oenv;
+
+	opt.files.log = ffopen("log.txt", "w");
+	if (opt.dim<2) opt.dim = 2;
 
 	/* Process our own options.
 	 * Make copies of file names for easier memory management. */
@@ -928,43 +937,23 @@ void AtomReader::start(int argc,char *argv[]){
 	snew(trj->top, 1);
 	char title[STRLEN];
 	trj->bTop = read_tps_conf(trj->topfile_notnull, title, trj->top, &trj->ePBC, &trj->xtop, NULL, trj->boxtop, FALSE);
+	//TODO? if (trj->ePBC) gpbc = gmx_rmpbc_init(trj->top.idef,trj->ePBC,natoms,box);
 
 	/* Read index file */
 
-	if(ftp2bSet(efNDX,NFILE,fnm)){
-		printf("Select group of atoms to calculate the cavities within:\n");
-		snew(grpname,1);
-		get_index(&trj->top->atoms,ftp2fn_null(efNDX,NFILE,fnm),1,&opt.params.isize,&opt.params.index,grpname);
-	}else{
-		int i;
-		opt.params.isize = trj->top->atoms.nr;
-		snew(opt.params.index,opt.params.isize);
-		for(i=0; i<opt.params.isize; i++){
-			opt.params.index[i] = i;
-		}
-	}
+	printf("Select group of atoms to calculate the cavities within:\n");
+	snew(grpname,1);
+	get_index(&trj->top->atoms,ftp2fn_null(efNDX,NFILE,fnm),1,&opt.params.isize,&opt.params.index,grpname);
 
 	/* If solvent calculation required, identify solvent atoms*/
 
 	if (opt2fn_null("-os",NFILE,fnm) || opt2fn_null("-osstat",NFILE,fnm)){
 		opt.sol=true;
 
-		if(ftp2bSet(efNDX,NFILE,fnm)){
-			printf("Select solvent:\n");
-			snew(grpname,1);
-			get_index(&trj->top->atoms,ftp2fn_null(efNDX,NFILE,fnm),1,&opt.params.sol_isize,&opt.params.sol_index,grpname);
-		}else{
-			int cont=0;
-			opt.params.sol_isize = trj->top->atoms.nr;
-			snew(opt.params.index,opt.params.sol_isize);
-			for(int i=0; i<trj->top->atoms.nr; i++) {
-				if(strcmp(trj->top->atoms.resinfo[trj->top->atoms.atom[i].resind].name[0], "SOL") == 0){
-					opt.params.sol_index[cont]=i;
-					cont++;
-				}
-			}
-			opt.params.sol_isize = cont;
-		}
+		printf("Select solvent (or any ligand):\n");
+		snew(grpname,1);
+		get_index(&trj->top->atoms,ftp2fn_null(efNDX,NFILE,fnm),1,&opt.params.sol_isize,&opt.params.sol_index,grpname);
+
 	}
 
 	if (opt2parg_bSet("-seed",NPA,pa)){
@@ -1089,7 +1078,12 @@ void AtomReader::start(int argc,char *argv[]){
 	opt.params.statistics.deleteGrid();
 	opt.params.water_statistics.deleteGrid();
 
-	printf("end");
+	printf("\n\n++++ PLEASE READ AND CITE THE FOLLOWING REFERENCE ++++\n");
+	printf("T. Paramo et al. \n");
+	printf("Efficient characterisation of protein cavities within \n");
+	printf("molecular simulation trajectories: trj_cavity\n");
+	printf("J. Chem. Theory Comput. Submitted\n");
+	printf("-------- -------- --- Thank You --- -------- --------\n\n");
 }
 
 

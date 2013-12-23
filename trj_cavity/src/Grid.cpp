@@ -102,9 +102,9 @@ float Grid::calculateNumberCells(float a, float b){
 }
 
 int Grid::calculatePositionInGrid(float coordinate, float origin){
-	float dist = calculateDistance(origin,coordinate);
-	int position = fabs(dist/spacing);
-	if((dist/spacing -position)>spacing) position ++;
+	float dist = calculateDistance(origin,coordinate)/spacing;
+	int position = fabs(dist);
+	if(dist-position>0.5) position ++;
 	return position;
 }
 
@@ -300,6 +300,11 @@ vector<Coordinates> Grid::getCavity(int x, int y , int z, bool rectify, Grid sta
 			aux = getNeighbours(candidate,rectify, statistics, index);
 			neighbours.insert(neighbours.end(), aux.begin(), aux.end());
 			cavity.push_back(calculateCoordinateInGrid(candidate));
+
+			Coordinates coord = calculateCoordinateInGrid(candidate);
+			int x = calculatePositionInGrid(coord.getX(), originX);
+			int y = calculatePositionInGrid(coord.getY(), originY);
+			int z = calculatePositionInGrid(coord.getZ(), originZ);
 		}
 		candidates.swap(neighbours);
 	}

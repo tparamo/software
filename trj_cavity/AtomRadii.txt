@@ -1,3 +1,4 @@
+#Feel free to modify the atom radius, no need to re-compile
 C 1.70
 N 1.55
 H 0.4
